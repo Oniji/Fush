@@ -7,17 +7,10 @@ local imgui = require('imgui');
 
 local M = {};
 
-local editor_open = nil;
-
-function M.set_editor_open(ref)
-    editor_open = ref;
-end
-
 function M.GetUIDrawList()
-    if editor_open and editor_open[1] then
-        return imgui.GetBackgroundDrawList();
-    end
-    return imgui.GetForegroundDrawList();
+    -- Always use background draw list for panel/backdrop primitives so text
+    -- rendered by ImGui windows stays on top and does not look faded.
+    return imgui.GetBackgroundDrawList();
 end
 
 return M;

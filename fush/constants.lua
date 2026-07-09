@@ -36,4 +36,12 @@ M.PACKET_FISHING_ACTION = 0x110;
 M.PACKET_ZONE = 0x00A;
 M.PACKET_STATUS = 0x037;
 
+-- Ashita craft skill index: Fishing is 0
+M.FISHING_CRAFT_SKILL_INDEX = 0;
+-- Packet 0x029 skill ID for fishing craft skillups
+M.FISHING_SKILL_ID = 48;
+M.PACKET_MESSAGE = 0x029;
+M.MSG_SKILL_FRAC = 38;
+M.MSG_SKILL_TICK = 53;
+
 return M;

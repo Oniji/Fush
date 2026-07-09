@@ -1,536 +1,774 @@
 --[[
-
 * Fush - Fishing session tracker
-
 ]]--
 
-
-
 require('common');
-
+local settings = require('settings');
 local constants = require('constants');
-
 local format = require('libs.format');
-
 local theme = require('libs.theme');
-
 local ui = require('libs.ui');
-
 local drawing = require('libs.drawing');
-
 local imgui = require('imgui');
 
-
-
 local M = {
-
-    last_size = { w = 240, h = 220 },
-
+    last_size = { w = 280, h = 200 },
 };
-
-
+local MIN_COLUMN_WIDTH = 72;
+local RATE_UPDATE_MS = 30000;
 
 M.session = {
-
     lines_cast = 0,
-
     hooks = 0,
-
     fish_caught = 0,
-
     items_caught = 0,
-
     monsters_caught = 0,
-
     lost = 0,
-
     broken = 0,
-
     first_cast_ms = 0,
-
     last_activity_ms = 0,
-
     current_hook = nil,
-
     rewards = T{},
-
+    skill_start = nil,
+    fishing_frac = 0,
+    last_skill_int = nil,
+    -- True once a whole-level tick (or restored exact save) makes tenths trustworthy.
+    skill_exact = false,
 };
 
+M.skillup_pkt_at = nil;
+M.skill_settings = nil;
+M.skill_dirty = false;
+M.skill_last_save_ms = 0;
+local SKILL_SAVE_DEBOUNCE_MS = 2000;
 
+M.rate_cache = {
+    gph = 0,
+    net = nil,
+    last_update_ms = 0,
+};
+
+M.player_name = '';
+
+function M.refresh_player_name()
+    local name = AshitaCore:GetMemoryManager():GetParty():GetMemberName(0);
+    if name ~= nil and name ~= '' then
+        M.player_name = string.lower(name);
+    end
+    return M.player_name;
+end
+
+local function sanitize_item_name(name)
+    if name == nil then
+        return nil;
+    end
+
+    name = name:gsub('^%s+', ''):gsub('%s+$', '');
+    name = name:gsub('[!%.]+$', '');
+    name = name:gsub('^%s+', ''):gsub('%s+$', '');
+    if name == '' then
+        return nil;
+    end
+    return name;
+end
+
+local PREVIEW_SESSION = {
+    lines_cast = 48,
+    hooks = 42,
+    fish_caught = 35,
+    items_caught = 4,
+    monsters_caught = 1,
+    lost = 5,
+    broken = 2,
+    first_cast_ms = ashita.time.clock()['ms'] - (45 * 60 * 1000),
+    last_activity_ms = ashita.time.clock()['ms'],
+    skill_start = 45.1,
+    skill_current = 45.2,
+    rewards = T{
+        ['Moat Carp'] = 12,
+        ['Crayfish'] = 5,
+        ['Gold Carp'] = 3,
+    },
+};
+
+function M.reset_rate_cache()
+    M.rate_cache.gph = 0;
+    M.rate_cache.net = nil;
+    M.rate_cache.last_update_ms = 0;
+end
+
+function M.bind_skill_settings(settings_ref)
+    M.skill_settings = settings_ref;
+    M.restore_fishing_skill();
+end
+
+function M.get_fishing_skill_int()
+    local ok, skill = pcall(function()
+        local player = AshitaCore:GetMemoryManager():GetPlayer();
+        if player == nil then
+            return nil;
+        end
+        local craft = player:GetCraftSkill(constants.FISHING_CRAFT_SKILL_INDEX);
+        if craft == nil then
+            return nil;
+        end
+        return craft:GetSkill();
+    end);
+
+    if not ok or skill == nil then
+        return nil;
+    end
+    return tonumber(skill);
+end
+
+local function round_tenth(v)
+    return math.floor(v * 10 + 0.5) / 10;
+end
+
+function M.persist_fishing_skill(force)
+    if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
+        return;
+    end
+
+    local skill_int = M.get_fishing_skill_int();
+    if skill_int == nil then
+        return;
+    end
+
+    local frac = math.min(0.9, M.session.fishing_frac or 0);
+    local level = skill_int + frac;
+    local store = M.skill_settings.fishing_skill;
+    store.exact[1] = M.session.skill_exact == true;
+    store.level[1] = round_tenth(level);
+    M.skill_dirty = true;
+
+    local now = ashita.time.clock()['ms'];
+    if force or (now - (M.skill_last_save_ms or 0)) >= SKILL_SAVE_DEBOUNCE_MS then
+        M.skill_last_save_ms = now;
+        M.skill_dirty = false;
+        settings.save();
+    end
+end
+
+function M.flush_fishing_skill()
+    if M.skill_dirty then
+        M.persist_fishing_skill(true);
+    end
+end
+
+function M.restore_fishing_skill()
+    local skill_int = M.get_fishing_skill_int();
+    M.session.last_skill_int = skill_int;
+    M.session.fishing_frac = 0;
+    M.session.skill_exact = false;
+
+    if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
+        return;
+    end
+
+    local store = M.skill_settings.fishing_skill;
+    local exact = store.exact and store.exact[1];
+    local saved = tonumber(store.level and store.level[1]) or 0;
+    if not exact or saved <= 0 or skill_int == nil then
+        return;
+    end
+
+    local saved_int = math.floor(saved);
+    local saved_frac = round_tenth(saved - saved_int);
+    -- Only trust the decimal if the whole level still matches memory.
+    if saved_int == skill_int then
+        M.session.skill_exact = true;
+        M.session.fishing_frac = math.min(0.9, saved_frac);
+    elseif saved_int < skill_int then
+        -- Leveled offline / without us; integer is known but tenths are not.
+        M.session.skill_exact = false;
+        M.session.fishing_frac = 0;
+    end
+end
+
+-- Memory only exposes whole levels; fractional tenths come from 0x029 / chat.
+function M.get_fishing_skill()
+    local skill_int = M.get_fishing_skill_int();
+    if skill_int == nil then
+        return nil;
+    end
+
+    -- Memory may not be ready at load; retry restore once we can read skill.
+    if not M.session.skill_exact
+        and M.skill_settings
+        and M.skill_settings.fishing_skill
+        and M.skill_settings.fishing_skill.exact
+        and M.skill_settings.fishing_skill.exact[1] then
+        M.restore_fishing_skill();
+        skill_int = M.get_fishing_skill_int() or skill_int;
+    end
+
+    -- If memory ticked up without our packet handler, tenths become known at N.0.
+    if M.session.last_skill_int ~= nil and skill_int > M.session.last_skill_int then
+        M.session.fishing_frac = 0;
+        M.session.skill_exact = true;
+        M.persist_fishing_skill(true);
+    end
+    M.session.last_skill_int = skill_int;
+
+    local frac = math.min(0.9, M.session.fishing_frac or 0);
+    return skill_int + frac;
+end
+
+function M.add_fishing_frac(delta)
+    if delta == nil or delta <= 0 then
+        return;
+    end
+
+    local nv = (M.session.fishing_frac or 0) + delta;
+    nv = round_tenth(nv);
+    if nv >= 1.0 then
+        -- Integer tick packet usually follows; keep frac at 0 until confirmed.
+        nv = 0;
+    end
+    M.session.fishing_frac = nv;
+    M.touch_activity();
+    -- Persist whenever tenths are known; still track while approximate so gains work.
+    if M.session.skill_exact then
+        M.persist_fishing_skill(false);
+    end
+end
+
+function M.on_fishing_skill_tick(new_int)
+    M.session.fishing_frac = 0;
+    if new_int ~= nil then
+        M.session.last_skill_int = new_int;
+    else
+        M.session.last_skill_int = M.get_fishing_skill_int();
+    end
+    -- A whole-level rise is the point absolute tenths become known (N.0).
+    M.session.skill_exact = true;
+    M.persist_fishing_skill(true);
+end
+
+function M.ensure_skill_start()
+    if M.session.skill_start ~= nil then
+        return;
+    end
+
+    local skill = M.get_fishing_skill();
+    if skill ~= nil then
+        M.session.skill_start = skill;
+    end
+end
+
+function M.get_skill_display(session, preview)
+    if preview then
+        return session.skill_current or 45.2, (session.skill_current or 45.2) - (session.skill_start or 45.1), true;
+    end
+
+    local current = M.get_fishing_skill();
+    if current == nil then
+        return nil, nil, false;
+    end
+
+    M.ensure_skill_start();
+    local start = M.session.skill_start or current;
+    return current, current - start, M.session.skill_exact == true;
+end
+
+function M.format_skill_line(current, gain, exact)
+    if current == nil then
+        return nil;
+    end
+
+    -- Hide once fishing skill hits 100.
+    if current >= 100 then
+        return nil;
+    end
+
+    local line;
+    if exact then
+        line = string.format('Skill: %.1f', current);
+    else
+        -- Tenths not yet proven; show whole level only.
+        line = string.format('Skill: %d', math.floor(current));
+    end
+
+    if gain ~= nil and gain > 0.0001 then
+        line = line .. string.format(' (+%.1f)', gain);
+    end
+    return line;
+end
 
 function M.reset_session()
-
     M.session.lines_cast = 0;
-
     M.session.hooks = 0;
-
     M.session.fish_caught = 0;
-
     M.session.items_caught = 0;
-
     M.session.monsters_caught = 0;
-
     M.session.lost = 0;
-
     M.session.broken = 0;
-
     M.session.first_cast_ms = 0;
-
     M.session.last_activity_ms = 0;
-
     M.session.current_hook = nil;
-
     M.session.rewards = T{};
-
+    -- Keep persisted exact skill across session clears.
+    M.restore_fishing_skill();
+    M.session.skill_start = M.get_fishing_skill();
+    M.reset_rate_cache();
 end
 
+function M.get_cached_gph(session, settings, pricing)
+    local net = M.get_net_gil(session, settings, pricing);
+    local now = ashita.time.clock()['ms'];
+    local needs_update = M.rate_cache.net == nil
+        or M.rate_cache.net ~= net
+        or (now - M.rate_cache.last_update_ms) >= RATE_UPDATE_MS;
 
+    if needs_update then
+        M.rate_cache.gph = format.format_gph(net, M.get_elapsed_seconds(session));
+        M.rate_cache.net = net;
+        M.rate_cache.last_update_ms = now;
+    end
+
+    return net, M.rate_cache.gph;
+end
 
 function M.touch_activity()
-
     M.session.last_activity_ms = ashita.time.clock()['ms'];
-
 end
-
-
 
 function M.record_cast()
-
     M.touch_activity();
-
+    M.ensure_skill_start();
     M.session.lines_cast = M.session.lines_cast + 1;
-
     if M.session.first_cast_ms == 0 then
-
         M.session.first_cast_ms = M.session.last_activity_ms;
-
     end
-
 end
-
-
 
 function M.record_hook(hook_type)
-
     M.touch_activity();
-
     M.session.hooks = M.session.hooks + 1;
-
     M.session.current_hook = hook_type;
-
 end
-
-
 
 local function add_reward(name)
-
     if M.session.rewards[name] == nil then
-
         M.session.rewards[name] = 1;
-
     else
-
         M.session.rewards[name] = M.session.rewards[name] + 1;
-
     end
-
 end
 
+function M.is_priced_item(item_name, pricing)
+    if item_name == nil or item_name == '' or pricing == nil then
+        return false;
+    end
+    return pricing[string.lower(item_name)] ~= nil;
+end
 
-
-function M.record_catch(item_name, hook_type)
-
+function M.record_catch(item_name, hook_type, pricing)
     M.touch_activity();
-
     hook_type = hook_type or M.session.current_hook;
 
-
+    -- Only track catches that exist in the Tracker item/price list.
+    if not M.is_priced_item(item_name, pricing) then
+        M.session.current_hook = nil;
+        return;
+    end
 
     if hook_type == constants.ITEM_HOOK_TYPE then
-
         M.session.items_caught = M.session.items_caught + 1;
-
     elseif hook_type == constants.MONSTER_HOOK_TYPE then
-
         M.session.monsters_caught = M.session.monsters_caught + 1;
-
     else
-
         M.session.fish_caught = M.session.fish_caught + 1;
-
     end
 
-
-
-    if item_name ~= nil and item_name ~= '' then
-
-        add_reward(item_name);
-
-    end
-
-
-
+    add_reward(item_name);
     M.session.current_hook = nil;
-
 end
-
-
 
 function M.record_lost()
-
     M.touch_activity();
-
     M.session.lost = M.session.lost + 1;
-
     M.session.current_hook = nil;
-
 end
-
-
 
 function M.record_broken()
-
     M.touch_activity();
-
     M.session.broken = M.session.broken + 1;
-
     M.session.current_hook = nil;
-
 end
 
-
-
-function M.get_accuracy()
-
-    if M.session.hooks == 0 then
-
-        return 0;
-
+local function get_session(preview)
+    if preview then
+        return PREVIEW_SESSION;
     end
-
-    return (M.session.fish_caught / M.session.hooks) * 100;
-
+    return M.session;
 end
 
+function M.get_accuracy(session)
+    if session.hooks == 0 then
+        return 0;
+    end
+    return (session.fish_caught / session.hooks) * 100;
+end
 
-
-function M.get_total_worth(pricing)
-
+function M.get_total_worth(session, pricing)
     local total = 0;
-
-    for name, count in pairs(M.session.rewards) do
-
+    for name, count in pairs(session.rewards) do
         local key = string.lower(name);
-
         if pricing[key] ~= nil then
-
             total = total + (tonumber(pricing[key]) or 0) * count;
-
         end
-
     end
-
     return total;
-
 end
 
-
-
-function M.get_net_gil(settings, pricing)
-
-    local total = M.get_total_worth(pricing);
-
+function M.get_net_gil(session, settings, pricing)
+    local total = M.get_total_worth(session, pricing);
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
-
-        total = total - (M.session.lines_cast * settings.tracker.bait_cost[1]);
-
+        total = total - (session.lines_cast * settings.tracker.bait_cost[1]);
     end
-
     return total;
-
 end
 
-
-
-function M.get_elapsed_seconds()
-
-    if M.session.first_cast_ms == 0 then
-
+function M.get_elapsed_seconds(session)
+    if session.first_cast_ms == 0 then
         return 0;
-
     end
-
-    return (ashita.time.clock()['ms'] - M.session.first_cast_ms) / 1000;
-
+    return (ashita.time.clock()['ms'] - session.first_cast_ms) / 1000;
 end
 
-
-
-function M.handle_text(e, bite)
-
-    if e.injected then
-
+function M.handle_packet_in(e)
+    if e.id ~= constants.PACKET_MESSAGE then
         return;
-
     end
 
+    local ok, raw_msgnum = pcall(struct.unpack, 'H', e.data, 0x18 + 0x01);
+    if not ok or raw_msgnum == nil then
+        return;
+    end
 
+    -- Bit 15 may be set; MessageNum is the lower 15 bits.
+    local msgnum = raw_msgnum % 32768;
+    if msgnum == constants.MSG_SKILL_FRAC then
+        local sid = struct.unpack('L', e.data, 0x0C + 0x01);
+        local tenths = struct.unpack('L', e.data, 0x10 + 0x01);
+        if sid == constants.FISHING_SKILL_ID and tenths ~= nil and tenths > 0 then
+            M.ensure_skill_start();
+            M.add_fishing_frac(tenths / 10.0);
+            M.skillup_pkt_at = os.clock();
+        end
+    elseif msgnum == constants.MSG_SKILL_TICK then
+        local sid = struct.unpack('L', e.data, 0x0C + 0x01);
+        local new_int = struct.unpack('L', e.data, 0x10 + 0x01);
+        if sid == constants.FISHING_SKILL_ID then
+            M.ensure_skill_start();
+            M.on_fishing_skill_tick(tonumber(new_int));
+            M.skillup_pkt_at = os.clock();
+            M.touch_activity();
+        end
+    end
+end
+
+function M.handle_text(e, bite, pricing)
+    if e.injected then
+        return;
+    end
+
+    -- Fallback fishing skill fraction capture (chat), if packet_in missed it.
+    local plain = string.strip_colors(e.message or '');
+    local skill_name, frac_digit = plain:match('([%a%-]+[%a%- ]*)%s*[Ss]kill rises[%s%a]*0%.(%d)');
+    if skill_name ~= nil and frac_digit ~= nil then
+        local name = skill_name:lower():gsub('^your%s+', ''):gsub('%s+$', '');
+        if name == 'fishing' then
+            local fresh_pkt = M.skillup_pkt_at ~= nil and (os.clock() - M.skillup_pkt_at) < 1.5;
+            if not fresh_pkt then
+                M.ensure_skill_start();
+                M.add_fishing_frac(tonumber('0.' .. frac_digit) or 0);
+            end
+        end
+    end
 
     local message = string.lower(string.strip_colors(e.message));
-
-
-
-    local catch = string.match(message, 'obtained: (.*).')
-
-        or string.match(message, 'you catch an? (.*).')
-
-        or string.match(message, 'you catch a (.*).');
-
-
-
-    if catch ~= nil then
-
-        M.record_catch(catch, bite.get_hook_type());
-
-        return;
-
+    local player = M.player_name;
+    if player == nil or player == '' then
+        player = M.refresh_player_name();
     end
 
+    -- HorizonXI / HGather style: "Playername caught a Tavnazian goby!"
+    if player ~= nil and player ~= '' then
+        local monster = string.match(message, '^' .. player .. ' caught a monster!$');
+        if monster ~= nil then
+            M.record_catch('monster', constants.MONSTER_HOOK_TYPE, pricing);
+            return;
+        end
 
+        local count, multi_catch = string.match(message, '^' .. player .. ' caught ([0-9]+) ([^!]+)!$');
+        if count ~= nil and multi_catch ~= nil then
+            local item = sanitize_item_name(multi_catch);
+            local hook_type = bite.get_hook_type();
+            for _ = 1, tonumber(count) or 1 do
+                M.record_catch(item, hook_type, pricing);
+            end
+            return;
+        end
+
+        local catch = string.match(message, '^' .. player .. ' caught an? ([^!]+)!$');
+        if catch ~= nil then
+            M.record_catch(sanitize_item_name(catch), bite.get_hook_type(), pricing);
+            return;
+        end
+    end
+
+    -- Fallback patterns (older / alternate clients)
+    local fallback = string.match(message, 'obtained: (.*).')
+        or string.match(message, 'you catch an? ([^!.]+)')
+        or string.match(message, 'you caught an? ([^!]+)!?');
+
+    if fallback ~= nil then
+        M.record_catch(sanitize_item_name(fallback), bite.get_hook_type(), pricing);
+        return;
+    end
 
     if string.contains(message, 'you lost your catch')
-
         or string.contains(message, 'the fish got away')
-
         or string.contains(message, 'lack of skill')
-
-        or string.contains(message, 'weren\'t able to catch anything') then
-
+        or string.contains(message, 'weren\'t able to catch anything')
+        or string.contains(message, 'you didn\'t catch anything')
+        or string.contains(message, 'you give up') then
         M.record_lost();
-
         return;
-
     end
-
-
 
     if string.contains(message, 'your line breaks') then
-
         M.record_broken();
-
         return;
-
     end
-
 end
-
-
 
 function M.handle_packet_out(e)
-
     if e.id ~= constants.PACKET_ACTION then
-
         return;
-
     end
-
-
 
     local action = struct.unpack('H', e.data_modified, 0x0A + 1);
-
     if action == constants.FISHING_ACTION_START then
-
         M.record_cast();
-
     end
-
 end
-
-
 
 function M.build_report(settings, pricing)
+    return M.build_report_for(M.session, settings, pricing);
+end
 
-    local elapsed = M.get_elapsed_seconds();
-
-    local accuracy = M.get_accuracy();
-
-    local net = M.get_net_gil(settings, pricing);
-
+function M.build_report_for(session, settings, pricing)
+    local elapsed = M.get_elapsed_seconds(session);
+    local accuracy = M.get_accuracy(session);
+    local net = M.get_net_gil(session, settings, pricing);
     local gph = format.format_gph(net, elapsed);
 
-
-
     local lines = T{};
-
     lines:append('~~~~~~ Fush Session ~~~~~~');
-
-    lines:append('Lines Cast: ' .. format.format_int(M.session.lines_cast));
-
-    lines:append('Hooks: ' .. format.format_int(M.session.hooks));
-
-    lines:append('Fish Caught: ' .. format.format_int(M.session.fish_caught));
-
-    lines:append('Items Caught: ' .. format.format_int(M.session.items_caught));
-
+    lines:append('Lines Cast: ' .. format.format_int(session.lines_cast));
+    lines:append('Hooks: ' .. format.format_int(session.hooks));
+    lines:append('Fish Caught: ' .. format.format_int(session.fish_caught));
+    lines:append('Items Caught: ' .. format.format_int(session.items_caught));
     lines:append('Fish Accuracy: ' .. format.format_percent(accuracy));
-
-    lines:append('Lost / Broken: ' .. M.session.lost .. ' / ' .. M.session.broken);
-
+    lines:append('Lost / Broken: ' .. session.lost .. ' / ' .. session.broken);
     lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
 
-
-
-    for name, count in pairs(M.session.rewards) do
-
+    for name, count in pairs(session.rewards) do
         local key = string.lower(name);
-
         local price = tonumber(pricing[key]) or 0;
-
         lines:append(name .. ': x' .. format.format_int(count) .. ' (' .. format.format_int(price * count) .. 'g)');
-
     end
 
-
-
     lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
-
-
 
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
-
-        local bait_spent = M.session.lines_cast * settings.tracker.bait_cost[1];
-
+        local bait_spent = session.lines_cast * settings.tracker.bait_cost[1];
         lines:append('Bait Cost: ' .. format.format_int(bait_spent) .. 'g');
-
     end
-
-
 
     lines:append('Net Gil: ' .. format.format_int(net) .. 'g (' .. format.format_int(gph) .. ' gph)');
-
     return table.concat(lines, '\n');
-
 end
 
+local function stat_cell(label, value, value_color)
+    ui.text_outlined_colored(label, theme.colors.text_light);
+    ui.text_outlined_colored(value, value_color or theme.colors.text_gold);
+end
 
-
-function M.render(settings, pricing)
-
-    if not settings.tracker.visible[1] then
-
-        return;
-
+local function draw_stat_row(row_id, labels, values, colors)
+    local count = #labels;
+    imgui.Columns(count, '##fush_stats_' .. row_id, false);
+    for i = 0, count - 1 do
+        imgui.SetColumnWidth(i, MIN_COLUMN_WIDTH);
     end
 
-
-
-    local idle_secs = (ashita.time.clock()['ms'] - M.session.last_activity_ms) / 1000;
-
-    if M.session.last_activity_ms > 0 and idle_secs > settings.tracker.display_timeout[1] then
-
-        return;
-
+    for i = 1, count do
+        stat_cell(labels[i], values[i], colors and colors[i] or nil);
+        imgui.NextColumn();
     end
 
+    imgui.Columns(1);
+end
 
+-- Reserve space for the longest unit ("gph") so ones-digits share one column
+-- across catch totals, Net Gil (…g), and Rate (…gph).
+local GIL_UNIT_RESERVE = 'gph';
+local GIL_UNIT_GAP = 3;
 
+local function gil_digit_right_x(pad)
+    return imgui.GetWindowWidth() - pad - ui.measure_text(GIL_UNIT_RESERVE) - GIL_UNIT_GAP;
+end
+
+local function draw_aligned_gil(amount, unit, color, pad, same_line)
+    local num = format.format_int(amount);
+    local num_w = ui.measure_text(num);
+    local right = gil_digit_right_x(pad);
+    if same_line then
+        imgui.SameLine(right - num_w);
+    else
+        local y = imgui.GetCursorPosY();
+        imgui.SetCursorPosX(right - num_w);
+        imgui.SetCursorPosY(y);
+    end
+    ui.text_outlined_colored(num, color);
+    imgui.SameLine(0, GIL_UNIT_GAP);
+    ui.text_outlined_colored(unit, color);
+end
+
+local function draw_money_row(label, amount, unit, draw_list, pad, settings)
+    local transparent = ui.is_transparent_theme(settings);
+
+    if label == 'Net Gil' and not transparent then
+        local gil_x, gil_y = imgui.GetCursorScreenPos();
+        local offset = ui.draw_gil_icon(draw_list, gil_x, gil_y + 1, 13);
+        if offset > 0 then
+            imgui.SetCursorPosX(pad + offset);
+        end
+    end
+
+    ui.text_outlined_colored(label, theme.colors.text_light);
+    draw_aligned_gil(amount, unit, theme.colors.text_gold, pad, true);
+end
+
+function M.render(settings, pricing, preview)
+
+    if not settings.tracker.visible[1] and not preview then
+        return;
+    end
+
+    if not preview then
+        local idle_secs = (ashita.time.clock()['ms'] - M.session.last_activity_ms) / 1000;
+        if M.session.last_activity_ms > 0 and idle_secs > settings.tracker.display_timeout[1] then
+            return;
+        end
+    end
+
+    local session = get_session(preview);
     local x = settings.tracker.x[1];
-
     local y = settings.tracker.y[1];
-
-    local pad = settings.ui.padding[1];
-
+    local pad = ui.get_padding(settings, 'tracker');
     local draw_list = drawing.GetUIDrawList();
+    local scale = ui.get_module_scale(settings, 'tracker');
+    local transparent = ui.is_transparent_theme(settings);
 
-
-
-    ui.draw_panel_background(draw_list, x, y, M.last_size.w, M.last_size.h, settings);
-
-
+    ui.draw_panel_background(draw_list, x, y, M.last_size.w, M.last_size.h, settings, 'tracker');
 
     imgui.SetNextWindowBgAlpha(0);
-
     imgui.SetNextWindowPos({ x, y }, ImGuiCond_Always);
+    local min_tracker_width = (MIN_COLUMN_WIDTH * 3) + (pad * 2) + 16;
+    imgui.SetNextWindowSize({ math.max(M.last_size.w, min_tracker_width), 0 }, ImGuiCond_Always);
 
-
-
-    if imgui.Begin('FushTracker##Display', true, ui.get_panel_flags()) then
-
-        imgui.SetWindowFontScale(settings.font_scale[1]);
-
+    if imgui.Begin('FushTracker##Display', ui.get_panel_open('tracker'), ui.get_panel_flags()) then
+        imgui.SetWindowFontScale(scale);
         imgui.SetCursorPos({ pad, pad });
 
+        local accuracy = M.get_accuracy(session);
+        local net, gph = M.get_cached_gph(session, settings, pricing);
+        local skill_current, skill_gain, skill_exact = M.get_skill_display(session, preview);
+        local skill_line = M.format_skill_line(skill_current, skill_gain, skill_exact);
 
-
-        imgui.PushStyleColor(ImGuiCol_Text, theme.colors.text_gold);
-
-        imgui.Text('Fush Session');
-
-        imgui.PopStyleColor(1);
-
-        imgui.Separator();
-
-
-
-        imgui.Text('Lines: ' .. format.format_int(M.session.lines_cast));
-
-        imgui.Text('Hooks: ' .. format.format_int(M.session.hooks));
-
-        imgui.Text('Fish: ' .. format.format_int(M.session.fish_caught) .. '  Items: ' .. format.format_int(M.session.items_caught));
-
-        imgui.Text('Accuracy: ' .. format.format_percent(M.get_accuracy()));
-
-        imgui.Text('Lost: ' .. M.session.lost .. '  Broken: ' .. M.session.broken);
-
-
-
-        local elapsed = M.get_elapsed_seconds();
-
-        local net = M.get_net_gil(settings, pricing);
-
-        local gph = format.format_gph(net, elapsed);
-
-        imgui.Separator();
-
-        local gil_x, gil_y = imgui.GetCursorScreenPos();
-        local gil_offset = ui.draw_gil_icon(draw_list, gil_x, gil_y + 2, 14);
-        if gil_offset > 0 then
-            imgui.SetCursorPosX(pad + gil_offset);
+        if skill_line ~= nil then
+            ui.text_outlined_colored(skill_line, theme.colors.text_gold);
+            imgui.Spacing();
         end
-        imgui.Text('Net Gil: ' .. format.format_int(net) .. 'g');
 
-        imgui.Text('Rate: ' .. format.format_int(gph) .. ' gph');
+        draw_stat_row(
+            'row1',
+            { 'Casts', 'Hooks', 'Fish' },
+            {
+                format.format_int(session.lines_cast),
+                format.format_int(session.hooks),
+                format.format_int(session.fish_caught),
+            }
+        );
 
+        imgui.Spacing();
 
+        draw_stat_row(
+            'row2',
+            { 'Accuracy', 'Lost', 'Broken' },
+            {
+                format.format_percent(accuracy),
+                tostring(session.lost),
+                tostring(session.broken),
+            }
+        );
 
-        if next(M.session.rewards) ~= nil then
-
+        if not transparent then
+            imgui.PushStyleColor(ImGuiCol_Separator, theme.colors.border_gold or theme.colors.border);
             imgui.Separator();
+            imgui.PopStyleColor(1);
+        else
+            imgui.Spacing();
+        end
 
-            for name, count in pairs(M.session.rewards) do
+        local reward_names = T{};
+        for name, _ in pairs(session.rewards) do
+            reward_names:append(name);
+        end
+        table.sort(reward_names);
 
-                imgui.Text(name .. ' x' .. count);
-
+        if #reward_names > 0 then
+            if not transparent then
+                imgui.Separator();
+            else
+                imgui.Spacing();
             end
 
+            for _, name in ipairs(reward_names) do
+                local count = session.rewards[name];
+                local unit_price = tonumber(pricing[string.lower(name)]) or 0;
+                local total_gil = unit_price * count;
+
+                ui.text_outlined_colored(name, theme.colors.text_light);
+                imgui.SameLine(pad + 140);
+                ui.text_outlined_colored(tostring(count), theme.colors.text_light);
+                draw_aligned_gil(total_gil, 'g', theme.colors.text_light, pad, true);
+            end
         end
 
+        if not transparent then
+            imgui.Separator();
+        else
+            imgui.Spacing();
+        end
 
+        draw_money_row('Net Gil', net, 'g', draw_list, pad, settings);
+        draw_money_row('Rate', gph, 'gph', draw_list, pad, settings);
+
+        imgui.SetWindowFontScale(1.0);
 
         local size = { imgui.GetWindowSize() };
-
         M.last_size.w = size[1];
-
         M.last_size.h = size[2];
 
+        ui.draw_panel_drag('tracker', settings.tracker.x, settings.tracker.y, size[1], size[2]);
     end
-
     imgui.End();
-
 end
 
-
-
 return M;
-
-

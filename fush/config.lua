@@ -40,48 +40,58 @@ M.default_settings = T{
 
     reset_on_load = T{ false },
 
-
+    -- Last known fishing skill. `exact` becomes true after observing a whole-level
+    -- tick (tenths are then trustworthy). level is stored as e.g. 66.4.
+    fishing_skill = T{
+        exact = T{ false },
+        level = T{ 0 },
+    },
 
     ui = T{
-
-        background_theme = T{ 'Window1' },
-
-        padding = T{ 8 },
-
-        bg_scale = T{ 1.0 },
-
-        border_scale = T{ 1.0 },
-
-        background_opacity = T{ 1.0 },
-
-        border_opacity = T{ 1.0 },
-
-        show_bookends = T{ true },
-
-        bookend_size = T{ 10 },
-
-        bar_border_thickness = T{ 2 },
-
-        no_bookend_rounding = T{ 4 },
-
+        background_theme = T{ 'DarkGold' },
+        bite = T{
+            scale = T{ 1.0 },
+            padding = T{ 8 },
+            bg_scale = T{ 1.0 },
+            border_scale = T{ 1.0 },
+            background_opacity = T{ 1.0 },
+            border_opacity = T{ 0.9 },
+            border_thickness = T{ 2 },
+            panel_rounding = T{ 6 },
+        },
+        tracker = T{
+            scale = T{ 1.0 },
+            padding = T{ 8 },
+            bg_scale = T{ 1.0 },
+            border_scale = T{ 1.0 },
+            background_opacity = T{ 1.0 },
+            border_opacity = T{ 0.9 },
+            border_thickness = T{ 2 },
+            panel_rounding = T{ 6 },
+        },
+        pool = T{
+            scale = T{ 1.0 },
+            padding = T{ 8 },
+            bg_scale = T{ 1.0 },
+            border_scale = T{ 1.0 },
+            background_opacity = T{ 1.0 },
+            border_opacity = T{ 0.9 },
+            border_thickness = T{ 2 },
+            panel_rounding = T{ 6 },
+            show_bookends = T{ true },
+            bookend_size = T{ 10 },
+            bar_border_thickness = T{ 2 },
+            no_bookend_rounding = T{ 4 },
+        },
         background_gradient_start = T{ '#01122b' },
-
         background_gradient_end = T{ '#061c39' },
-
         bookend_gradient_start = T{ '#576C92' },
-
         bookend_gradient_mid = T{ '#B7C9FF' },
-
         bookend_gradient_stop = T{ '#576C92' },
-
         bar_fill_start = T{ '#3798ce' },
-
         bar_fill_end = T{ '#78c5ee' },
-
         notch_color = T{ '#F2D159' },
-
         notch_passed_color = T{ '#738299' },
-
     },
 
 
@@ -89,6 +99,8 @@ M.default_settings = T{
     bite = T{
 
         visible = T{ true },
+
+        font_scale = T{ 1.0 },
 
         x = T{ 20 },
 
@@ -101,6 +113,8 @@ M.default_settings = T{
     tracker = T{
 
         visible = T{ true },
+
+        font_scale = T{ 1.0 },
 
         x = T{ 20 },
 
@@ -130,6 +144,8 @@ M.default_settings = T{
 
         visible = T{ true },
 
+        font_scale = T{ 1.0 },
+
         x = T{ 20 },
 
         y = T{ 520 },
@@ -153,6 +169,109 @@ M.editor_open = T{ false };
 
 
 ui.bind(M.settings, M.editor_open);
+
+
+
+function M.ensure_ui_settings()
+
+    if M.settings.ui == nil then
+
+        M.settings.ui = T{};
+
+    end
+
+
+
+    local defaults = M.default_settings.ui;
+
+    local function ensure_ui_section(section_name)
+        if M.settings.ui[section_name] == nil then
+            M.settings.ui[section_name] = T{};
+        end
+        for key, value in pairs(defaults[section_name]) do
+            if M.settings.ui[section_name][key] == nil then
+                M.settings.ui[section_name][key] = value;
+            end
+        end
+    end
+
+    -- Flat keys from previous schema -> per-module schema migration.
+    local legacy_map = {
+        { old = 'padding', new = 'padding' },
+        { old = 'bg_scale', new = 'bg_scale' },
+        { old = 'border_scale', new = 'border_scale' },
+        { old = 'background_opacity', new = 'background_opacity' },
+        { old = 'border_opacity', new = 'border_opacity' },
+        { old = 'border_thickness', new = 'border_thickness' },
+        { old = 'panel_rounding', new = 'panel_rounding' },
+    };
+
+    ensure_ui_section('bite');
+    ensure_ui_section('tracker');
+    ensure_ui_section('pool');
+
+    for _, map in ipairs(legacy_map) do
+        if M.settings.ui[map.old] ~= nil then
+            if M.settings.ui.bite[map.new] == nil then M.settings.ui.bite[map.new] = M.settings.ui[map.old]; end
+            if M.settings.ui.tracker[map.new] == nil then M.settings.ui.tracker[map.new] = M.settings.ui[map.old]; end
+            if M.settings.ui.pool[map.new] == nil then M.settings.ui.pool[map.new] = M.settings.ui[map.old]; end
+        end
+    end
+
+    local legacy_pool_map = {
+        { old = 'show_bookends', new = 'show_bookends' },
+        { old = 'bookend_size', new = 'bookend_size' },
+        { old = 'bar_border_thickness', new = 'bar_border_thickness' },
+        { old = 'no_bookend_rounding', new = 'no_bookend_rounding' },
+    };
+    for _, map in ipairs(legacy_pool_map) do
+        if M.settings.ui[map.old] ~= nil and M.settings.ui.pool[map.new] == nil then
+            M.settings.ui.pool[map.new] = M.settings.ui[map.old];
+        end
+    end
+
+    for key, value in pairs(defaults) do
+        if type(value) ~= 'table' or (key ~= 'bite' and key ~= 'tracker' and key ~= 'pool') then
+            if M.settings.ui[key] == nil then
+                M.settings.ui[key] = value;
+            end
+        end
+    end
+
+end
+
+local function ensure_module_settings(module_name)
+    if M.settings[module_name] == nil then
+        M.settings[module_name] = T{};
+    end
+
+    local defaults = M.default_settings[module_name];
+    for key, value in pairs(defaults) do
+        if M.settings[module_name][key] == nil then
+            M.settings[module_name][key] = value;
+        end
+    end
+end
+
+
+
+M.ensure_ui_settings();
+ensure_module_settings('bite');
+ensure_module_settings('tracker');
+ensure_module_settings('pool');
+
+if M.settings.fishing_skill == nil then
+    M.settings.fishing_skill = T{
+        exact = T{ false },
+        level = T{ 0 },
+    };
+end
+if M.settings.fishing_skill.exact == nil then
+    M.settings.fishing_skill.exact = T{ false };
+end
+if M.settings.fishing_skill.level == nil then
+    M.settings.fishing_skill.level = T{ 0 };
+end
 
 
 
@@ -196,7 +315,7 @@ local function render_general()
 
     imgui.Text('Display');
 
-    imgui.BeginChild('fush_general', { 0, 120 }, true);
+    imgui.BeginChild('fush_general', { 0, 200 }, true);
 
     imgui.SliderFloat('Opacity', M.settings.opacity, 0.125, 1.0, '%.2f');
 
@@ -232,7 +351,7 @@ local function render_appearance()
 
     imgui.Text('Window Theme');
 
-    local themes = T{ 'Window1', 'Plain' };
+    local themes = T{ 'DarkGold', 'OceanBlue', 'Transparent', 'Window1', 'Plain' };
 
     local current_theme = M.settings.ui.background_theme[1];
 
@@ -241,6 +360,22 @@ local function render_appearance()
         if imgui.RadioButton(theme_name, current_theme == theme_name) then
 
             M.settings.ui.background_theme[1] = theme_name;
+            if theme_name == 'Plain' then
+                M.settings.ui.bite.background_opacity[1] = 0.5;
+                M.settings.ui.tracker.background_opacity[1] = 0.5;
+                M.settings.ui.pool.background_opacity[1] = 0.5;
+                M.settings.ui.bite.border_thickness[1] = 0;
+                M.settings.ui.tracker.border_thickness[1] = 0;
+                M.settings.ui.pool.border_thickness[1] = 0;
+            elseif theme_name == 'OceanBlue' then
+                -- Sensible defaults on theme switch; sliders remain free to change after.
+                M.settings.ui.bite.background_opacity[1] = 0.3;
+                M.settings.ui.tracker.background_opacity[1] = 0.3;
+                M.settings.ui.pool.background_opacity[1] = 0.3;
+                M.settings.ui.bite.border_thickness[1] = 2;
+                M.settings.ui.tracker.border_thickness[1] = 2;
+                M.settings.ui.pool.border_thickness[1] = 2;
+            end
 
         end
 
@@ -252,19 +387,28 @@ local function render_appearance()
 
 
 
-    imgui.SliderInt('Panel Padding', M.settings.ui.padding, 4, 16);
+    local function render_module_style_section(label, module_style, is_pool)
+        imgui.Separator();
+        imgui.Text(label);
+        imgui.SliderFloat(label .. ' Scale', module_style.scale, 0.50, 2.50, '%.2f');
+        imgui.SliderInt(label .. ' Panel Padding', module_style.padding, 0, 24);
+        imgui.SliderFloat(label .. ' Background Scale', module_style.bg_scale, 0.5, 2.0, '%.2f');
+        imgui.SliderFloat(label .. ' Border Scale', module_style.border_scale, 0.5, 2.0, '%.2f');
+        imgui.SliderFloat(label .. ' Background Opacity', module_style.background_opacity, 0.0, 1.0, '%.2f');
+        imgui.SliderInt(label .. ' Border Thickness', module_style.border_thickness, 0, 6);
+        imgui.SliderInt(label .. ' Panel Roundness', module_style.panel_rounding, 0, 16);
 
-    imgui.SliderFloat('Background Scale', M.settings.ui.bg_scale, 0.5, 2.0, '%.2f');
+        if is_pool then
+            imgui.Checkbox('Pool Show Bar Bookends', module_style.show_bookends);
+            imgui.SliderInt('Pool Bookend Size', module_style.bookend_size, 5, 20);
+            imgui.SliderInt('Pool Bar Border Thickness', module_style.bar_border_thickness, 0, 6);
+            imgui.SliderInt('Pool Bar Roundness', module_style.no_bookend_rounding, 0, 16);
+        end
+    end
 
-    imgui.SliderFloat('Border Scale', M.settings.ui.border_scale, 0.5, 2.0, '%.2f');
-
-    imgui.Checkbox('Show Bar Bookends', M.settings.ui.show_bookends);
-
-    imgui.SliderInt('Bookend Size', M.settings.ui.bookend_size, 5, 20);
-
-    imgui.SliderInt('Bar Border Thickness', M.settings.ui.bar_border_thickness, 0, 5);
-
-    imgui.SliderInt('Bar Roundness (no bookends)', M.settings.ui.no_bookend_rounding, 0, 10);
+    render_module_style_section('Bite', M.settings.ui.bite, false);
+    render_module_style_section('Session', M.settings.ui.tracker, false);
+    render_module_style_section('Pool', M.settings.ui.pool, true);
 
 
 
@@ -310,19 +454,16 @@ local function render_positions()
 
 
 
-    local bite_pos = { M.settings.bite.x[1], M.settings.bite.y[1] };
-
-    if imgui.InputInt2('Bite Position', bite_pos) then
-
+    local bite_pos = T{ M.settings.bite.x[1], M.settings.bite.y[1] };
+    if imgui.InputInt2('Bite Seam Position', bite_pos) then
         M.settings.bite.x[1] = bite_pos[1];
-
         M.settings.bite.y[1] = bite_pos[2];
-
     end
+    imgui.TextDisabled('Bite X is the center seam; halves grow outward from it.');
 
 
 
-    local tracker_pos = { M.settings.tracker.x[1], M.settings.tracker.y[1] };
+    local tracker_pos = T{ M.settings.tracker.x[1], M.settings.tracker.y[1] };
 
     if imgui.InputInt2('Tracker Position', tracker_pos) then
 
@@ -334,7 +475,7 @@ local function render_positions()
 
 
 
-    local pool_pos = { M.settings.pool.x[1], M.settings.pool.y[1] };
+    local pool_pos = T{ M.settings.pool.x[1], M.settings.pool.y[1] };
 
     if imgui.InputInt2('Pool Bar Position', pool_pos) then
 
@@ -364,11 +505,13 @@ function M.render_editor()
 
     end
 
+    M.ensure_ui_settings();
+
 
 
     imgui.SetNextWindowSize({ 540, 600 }, ImGuiCond_FirstUseEver);
 
-    local style_count = theme.apply_style();
+    local style_counts = theme.apply_style();
 
 
 
@@ -390,6 +533,8 @@ function M.render_editor()
 
             settings.reload();
 
+            M.ensure_ui_settings();
+
             ui.bind(M.settings, M.editor_open);
 
             M.update_pricing();
@@ -403,6 +548,8 @@ function M.render_editor()
         if imgui.Button('Reset Defaults') then
 
             settings.reset();
+
+            M.ensure_ui_settings();
 
             ui.bind(M.settings, M.editor_open);
 
@@ -478,7 +625,7 @@ function M.render_editor()
 
     imgui.End();
 
-    theme.pop_style(style_count);
+    theme.pop_style(style_counts);
 
 end
 
@@ -492,11 +639,24 @@ settings.register('settings', 'settings_update', function (s)
 
     end
 
+    M.ensure_ui_settings();
+    ensure_module_settings('bite');
+    ensure_module_settings('tracker');
+    ensure_module_settings('pool');
+
+    if M.settings.fishing_skill == nil then
+        M.settings.fishing_skill = T{
+            exact = T{ false },
+            level = T{ 0 },
+        };
+    end
+
     ui.bind(M.settings, M.editor_open);
 
-    M.update_pricing();
+    local tracker = require('modules.tracker');
+    tracker.bind_skill_settings(M.settings);
 
-    settings.save();
+    M.update_pricing();
 
 end);
 

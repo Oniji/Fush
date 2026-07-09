@@ -106,9 +106,14 @@ end
 
 ashita.events.register('load', 'load_cb', function ()
 
+    config.ensure_ui_settings();
+
     ui.bind(config.settings, config.editor_open);
 
     config.update_pricing();
+
+    tracker.refresh_player_name();
+    tracker.bind_skill_settings(config.settings);
 
     if config.settings.reset_on_load[1] then
 
@@ -123,6 +128,8 @@ end);
 
 
 ashita.events.register('unload', 'unload_cb', function ()
+
+    tracker.flush_fishing_skill();
 
     ui.cleanup();
 
@@ -175,6 +182,8 @@ ashita.events.register('command', 'command_cb', function (e)
     if args[2]:any('reload') then
 
         settings.reload();
+
+        config.ensure_ui_settings();
 
         ui.bind(config.settings, config.editor_open);
 
@@ -258,7 +267,7 @@ ashita.events.register('text_in', 'text_in_cb', function (e)
 
     end
 
-    tracker.handle_text(e, bite);
+    tracker.handle_text(e, bite, config.pricing);
 
 end);
 
@@ -267,6 +276,12 @@ end);
 ashita.events.register('packet_in', 'packet_in_cb', function (e)
 
     bite.handle_packet(e);
+    tracker.handle_packet_in(e);
+
+    if e.id == 0x00A then
+        tracker.refresh_player_name();
+        tracker.restore_fishing_skill();
+    end
 
 end);
 
@@ -294,9 +309,9 @@ ashita.events.register('d3d_present', 'present_cb', function ()
 
     config.render_editor();
 
-    bite.render(config.settings);
+    bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
 
-    tracker.render(config.settings, config.pricing);
+    tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
 
     pool.render(config.settings);
 
