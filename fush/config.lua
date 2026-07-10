@@ -26,6 +26,10 @@ local ui = require('libs.ui');
 
 local attribution = require('libs.attribution');
 
+local tracker = require('modules.tracker');
+
+local bite = require('modules.bite');
+
 
 
 local M = {};
@@ -275,14 +279,27 @@ end
 
 
 
+local function trim_line(s)
+    if s == nil then
+        return '';
+    end
+    s = s:gsub('\r', '');
+    s = s:gsub('^%s+', '');
+    s = s:gsub('%s+$', '');
+    return s;
+end
+
+
+
 local function split(input, sep)
 
     local result = T{};
 
     for part in string.gmatch(input, '([^' .. sep .. ']+)') do
-
-        result:append(part);
-
+        part = trim_line(part);
+        if part ~= '' then
+            result:append(part);
+        end
     end
 
     return result;
@@ -296,15 +313,17 @@ function M.update_pricing()
     M.pricing = T{};
 
     for _, entry in ipairs(M.settings.tracker.item_index) do
-
-        local parts = split(entry, ':');
-
-        if #parts >= 2 then
-
-            M.pricing[string.lower(parts[1])] = tonumber(parts[2]) or 0;
-
+        entry = trim_line(entry);
+        if entry ~= '' then
+            local colon = entry:find(':');
+            if colon ~= nil and colon > 1 then
+                local name = trim_line(entry:sub(1, colon - 1));
+                local price = tonumber(trim_line(entry:sub(colon + 1))) or 0;
+                if name ~= '' then
+                    M.pricing[string.lower(name)] = price;
+                end
+            end
         end
-
     end
 
 end
@@ -441,6 +460,7 @@ local function render_tracker()
     if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, 180 }) then
 
         M.settings.tracker.item_index = split(temp[1], '\n');
+        M.update_pricing();
 
     end
 
@@ -540,6 +560,18 @@ function M.render_editor()
             M.update_pricing();
 
             print(chat.header('fush'):append(chat.message('Settings reloaded.')));
+
+        end
+
+        imgui.SameLine();
+
+        if imgui.Button('Reset Session') then
+
+            tracker.reset_session();
+
+            bite.reset();
+
+            print(chat.header('fush'):append(chat.message('Session cleared.')));
 
         end
 

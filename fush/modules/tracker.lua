@@ -30,6 +30,7 @@ M.session = {
     current_hook = nil,
     rewards = T{},
     skill_start = nil,
+    skill_gain = 0,
     fishing_frac = 0,
     last_skill_int = nil,
     -- True once a whole-level tick (or restored exact save) makes tenths trustworthy.
@@ -50,10 +51,20 @@ M.rate_cache = {
 
 M.player_name = '';
 
+local function trim_line(s)
+    if s == nil then
+        return '';
+    end
+    s = s:gsub('\r', '');
+    s = s:gsub('^%s+', '');
+    s = s:gsub('%s+$', '');
+    return s;
+end
+
 function M.refresh_player_name()
     local name = AshitaCore:GetMemoryManager():GetParty():GetMemberName(0);
     if name ~= nil and name ~= '' then
-        M.player_name = string.lower(name);
+        M.player_name = string.lower(trim_line(name));
     end
     return M.player_name;
 end
@@ -63,13 +74,20 @@ local function sanitize_item_name(name)
         return nil;
     end
 
-    name = name:gsub('^%s+', ''):gsub('%s+$', '');
+    name = trim_line(name);
     name = name:gsub('[!%.]+$', '');
-    name = name:gsub('^%s+', ''):gsub('%s+$', '');
+    name = trim_line(name);
     if name == '' then
         return nil;
     end
     return name;
+end
+
+local function normalize_price_key(name)
+    if name == nil then
+        return nil;
+    end
+    return string.lower(trim_line(name));
 end
 
 local PREVIEW_SESSION = {
@@ -83,6 +101,7 @@ local PREVIEW_SESSION = {
     first_cast_ms = ashita.time.clock()['ms'] - (45 * 60 * 1000),
     last_activity_ms = ashita.time.clock()['ms'],
     skill_start = 45.1,
+    skill_gain = 0.1,
     skill_current = 45.2,
     rewards = T{
         ['Moat Carp'] = 12,
@@ -227,8 +246,8 @@ function M.add_fishing_frac(delta)
         nv = 0;
     end
     M.session.fishing_frac = nv;
+    M.session.skill_gain = round_tenth((M.session.skill_gain or 0) + delta);
     M.touch_activity();
-    -- Persist whenever tenths are known; still track while approximate so gains work.
     if M.session.skill_exact then
         M.persist_fishing_skill(false);
     end
@@ -241,7 +260,7 @@ function M.on_fishing_skill_tick(new_int)
     else
         M.session.last_skill_int = M.get_fishing_skill_int();
     end
-    -- A whole-level rise is the point absolute tenths become known (N.0).
+    -- Whole-level tick makes tenths exact at N.0; session gain stays at observed +0.x sum.
     M.session.skill_exact = true;
     M.persist_fishing_skill(true);
 end
@@ -251,15 +270,22 @@ function M.ensure_skill_start()
         return;
     end
 
-    local skill = M.get_fishing_skill();
-    if skill ~= nil then
-        M.session.skill_start = skill;
+    local skill_int = M.get_fishing_skill_int();
+    if skill_int == nil then
+        return;
+    end
+
+    -- Baseline for internal reference only; session gain uses skill_gain accumulator.
+    if M.session.skill_exact then
+        M.session.skill_start = M.get_fishing_skill();
+    else
+        M.session.skill_start = skill_int;
     end
 end
 
 function M.get_skill_display(session, preview)
     if preview then
-        return session.skill_current or 45.2, (session.skill_current or 45.2) - (session.skill_start or 45.1), true;
+        return session.skill_current or 45.2, session.skill_gain or 0.1, true;
     end
 
     local current = M.get_fishing_skill();
@@ -268,8 +294,7 @@ function M.get_skill_display(session, preview)
     end
 
     M.ensure_skill_start();
-    local start = M.session.skill_start or current;
-    return current, current - start, M.session.skill_exact == true;
+    return current, M.session.skill_gain or 0, M.session.skill_exact == true;
 end
 
 function M.format_skill_line(current, gain, exact)
@@ -308,9 +333,10 @@ function M.reset_session()
     M.session.last_activity_ms = 0;
     M.session.current_hook = nil;
     M.session.rewards = T{};
+    M.session.skill_gain = 0;
     -- Keep persisted exact skill across session clears.
     M.restore_fishing_skill();
-    M.session.skill_start = M.get_fishing_skill();
+    M.session.skill_start = nil;
     M.reset_rate_cache();
 end
 
@@ -361,7 +387,7 @@ function M.is_priced_item(item_name, pricing)
     if item_name == nil or item_name == '' or pricing == nil then
         return false;
     end
-    return pricing[string.lower(item_name)] ~= nil;
+    return pricing[normalize_price_key(item_name)] ~= nil;
 end
 
 function M.record_catch(item_name, hook_type, pricing)
@@ -415,7 +441,7 @@ end
 function M.get_total_worth(session, pricing)
     local total = 0;
     for name, count in pairs(session.rewards) do
-        local key = string.lower(name);
+        local key = normalize_price_key(name);
         if pricing[key] ~= nil then
             total = total + (tonumber(pricing[key]) or 0) * count;
         end
@@ -490,12 +516,23 @@ function M.handle_text(e, bite, pricing)
     end
 
     local message = string.lower(string.strip_colors(e.message));
+    M.refresh_player_name();
     local player = M.player_name;
-    if player == nil or player == '' then
-        player = M.refresh_player_name();
-    end
 
     -- HorizonXI / HGather style: "Playername caught a Tavnazian goby!"
+    -- Parse catcher from the line so a stale cached name after char swap cannot block catches.
+    local catcher, catch_item = message:match('^([%a]+) caught an? ([^!]+)!$');
+    if catcher ~= nil and catch_item ~= nil then
+        if player == nil or player == '' then
+            M.player_name = catcher;
+            player = catcher;
+        end
+        if catcher == player then
+            M.record_catch(sanitize_item_name(catch_item), bite.get_hook_type(), pricing);
+            return;
+        end
+    end
+
     if player ~= nil and player ~= '' then
         local monster = string.match(message, '^' .. player .. ' caught a monster!$');
         if monster ~= nil then
@@ -741,7 +778,7 @@ function M.render(settings, pricing, preview)
 
             for _, name in ipairs(reward_names) do
                 local count = session.rewards[name];
-                local unit_price = tonumber(pricing[string.lower(name)]) or 0;
+                local unit_price = tonumber(pricing[normalize_price_key(name)]) or 0;
                 local total_gil = unit_price * count;
 
                 ui.text_outlined_colored(name, theme.colors.text_light);
