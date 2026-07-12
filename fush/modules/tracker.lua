@@ -12,9 +12,14 @@ local drawing = require('libs.drawing');
 local imgui = require('imgui');
 
 local M = {
-    last_size = { w = 280, h = 200 },
+    last_size = { w = 220, h = 200 },
+    layout_w = 220,
 };
-local MIN_COLUMN_WIDTH = 80;
+local MIN_COLUMN_WIDTH = 48;
+local STAT_COLUMN_PAD = 6;
+local CATCH_COUNT_GAP = 8;
+local CATCH_GIL_GAP = 12;
+local MIN_NAME_COL = 90;
 local RATE_UPDATE_MS = 30000;
 
 M.session = {
@@ -843,8 +848,7 @@ function M.build_report_for(session, settings, pricing)
     lines:append('Accuracy: ' .. format.format_percent(accuracy));
     lines:append('Monsters: ' .. format.format_int(session.monster_bites or 0));
     lines:append('Items: ' .. format.format_int(session.item_bites or 0));
-    lines:append('Small Fish: ' .. format.format_int(session.small_fish_bites or 0));
-    lines:append('Large Fish: ' .. format.format_int(session.large_fish_bites or 0));
+    lines:append('Fish: ' .. format.format_int((session.small_fish_bites or 0) + (session.large_fish_bites or 0)));
     lines:append('Lost / Broken: ' .. (session.lost or 0) .. ' / ' .. (session.broken or 0));
     lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
 
@@ -869,11 +873,43 @@ local function stat_cell(label, value, value_color)
     ui.text_outlined_colored(value, value_color or theme.colors.text_gold);
 end
 
-local function draw_stat_row(row_id, labels, values, colors)
+local function text_w(s)
+    local w = ui.measure_text(tostring(s or ''));
+    if type(w) ~= 'number' then
+        return 0;
+    end
+    return w;
+end
+
+local function measure_stat_column_width(label, value)
+    return math.max(MIN_COLUMN_WIDTH, math.max(text_w(label), text_w(value)) + STAT_COLUMN_PAD);
+end
+
+-- Shared widths so Casts/Monsters, Bites/Items, Accuracy/Fish line up.
+local function measure_shared_stat_widths(row1, row2)
+    local count = math.max(#row1.labels, #row2.labels);
+    local widths = {};
+    local total = 0;
+    for i = 1, count do
+        local w = 0;
+        if row1.labels[i] ~= nil then
+            w = math.max(w, measure_stat_column_width(row1.labels[i], row1.values[i]));
+        end
+        if row2.labels[i] ~= nil then
+            w = math.max(w, measure_stat_column_width(row2.labels[i], row2.values[i]));
+        end
+        widths[i] = w;
+        total = total + w;
+    end
+    return widths, total;
+end
+
+local function draw_stat_row(row_id, labels, values, column_widths, colors)
     local count = #labels;
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4, 2 });
     imgui.Columns(count, '##fush_stats_' .. row_id, false);
     for i = 0, count - 1 do
-        imgui.SetColumnWidth(i, MIN_COLUMN_WIDTH);
+        imgui.SetColumnWidth(i, column_widths[i + 1]);
     end
 
     for i = 1, count do
@@ -882,6 +918,7 @@ local function draw_stat_row(row_id, labels, values, colors)
     end
 
     imgui.Columns(1);
+    imgui.PopStyleVar(1);
 end
 
 -- Reserve space for the longest unit ("gph") so ones-digits share one column
@@ -889,14 +926,65 @@ end
 local GIL_UNIT_RESERVE = 'gph';
 local GIL_UNIT_GAP = 3;
 
-local function gil_digit_right_x(pad)
-    return imgui.GetWindowWidth() - pad - ui.measure_text(GIL_UNIT_RESERVE) - GIL_UNIT_GAP;
+local function should_show_bait(settings, session)
+    return settings.tracker.subtract_bait[1]
+        and not settings.tracker.use_lure[1]
+        and session.lines_cast > 0;
 end
 
-local function draw_aligned_gil(amount, unit, color, pad, same_line)
+local function get_bait_spent(settings, session)
+    return session.lines_cast * settings.tracker.bait_cost[1];
+end
+
+-- Content-measured width only — never GetWindowWidth(), or AlwaysAutoResize
+-- feedback will stretch the panel forever as right-aligned gil runs away.
+local function compute_tracker_layout(session, pricing, settings, pad, net, gph, skill_line, row1, row2)
+    local max_num_w = math.max(text_w(format.format_int(net)), text_w(format.format_int(gph)));
+    local max_name_w = math.max(text_w('Net Gil'), text_w('Rate'), text_w('Bait'));
+    local max_count_w = text_w('0');
+
+    for name, count in pairs(session.rewards or {}) do
+        local unit_price = tonumber(pricing[normalize_price_key(name)]) or 0;
+        local total_gil = unit_price * count;
+        max_num_w = math.max(max_num_w, text_w(format.format_int(total_gil)));
+        max_name_w = math.max(max_name_w, text_w(title_case(name)));
+        max_count_w = math.max(max_count_w, text_w(tostring(count)));
+    end
+
+    if should_show_bait(settings, session) then
+        local spent = get_bait_spent(settings, session);
+        max_num_w = math.max(max_num_w, text_w(format.format_int(-spent)));
+        max_count_w = math.max(max_count_w, text_w(tostring(session.lines_cast)));
+    end
+
+    local gil_col = max_num_w + GIL_UNIT_GAP + text_w(GIL_UNIT_RESERVE);
+    local name_col = math.max(MIN_NAME_COL, max_name_w);
+    local count_col = math.max(24, max_count_w);
+    local list_w = name_col + CATCH_COUNT_GAP + count_col + CATCH_GIL_GAP + gil_col;
+
+    local inner = list_w;
+    if skill_line ~= nil then
+        inner = math.max(inner, text_w(skill_line));
+    end
+    local stat_widths, stats_w = measure_shared_stat_widths(row1, row2);
+    inner = math.max(inner, stats_w);
+
+    return {
+        width = inner + (pad * 2),
+        name_col = name_col,
+        count_x = pad + name_col + CATCH_COUNT_GAP,
+        stat_widths = stat_widths,
+    };
+end
+
+local function gil_digit_right_x(pad, layout_w)
+    return layout_w - pad - text_w(GIL_UNIT_RESERVE) - GIL_UNIT_GAP;
+end
+
+local function draw_aligned_gil(amount, unit, color, pad, layout_w, same_line)
     local num = format.format_int(amount);
-    local num_w = ui.measure_text(num);
-    local right = gil_digit_right_x(pad);
+    local num_w = text_w(num);
+    local right = gil_digit_right_x(pad, layout_w);
     if same_line then
         imgui.SameLine(right - num_w);
     else
@@ -909,24 +997,14 @@ local function draw_aligned_gil(amount, unit, color, pad, same_line)
     ui.text_outlined_colored(unit, color);
 end
 
-local function should_show_bait(settings, session)
-    return settings.tracker.subtract_bait[1]
-        and not settings.tracker.use_lure[1]
-        and session.lines_cast > 0;
-end
-
-local function get_bait_spent(settings, session)
-    return session.lines_cast * settings.tracker.bait_cost[1];
-end
-
-local function draw_catch_row(name, count, total_gil, color, pad)
+local function draw_catch_row(name, count, total_gil, color, pad, layout)
     ui.text_outlined_colored(title_case(name), color);
-    imgui.SameLine(pad + 140);
+    imgui.SameLine(layout.count_x);
     ui.text_outlined_colored(tostring(count), color);
-    draw_aligned_gil(total_gil, 'g', color, pad, true);
+    draw_aligned_gil(total_gil, 'g', color, pad, layout.width, true);
 end
 
-local function draw_money_row(label, amount, unit, draw_list, pad, settings)
+local function draw_money_row(label, amount, unit, draw_list, pad, settings, layout)
     local transparent = ui.is_transparent_theme(settings);
 
     if label == 'Net Gil' and not transparent then
@@ -938,7 +1016,7 @@ local function draw_money_row(label, amount, unit, draw_list, pad, settings)
     end
 
     ui.text_outlined_colored(label, theme.colors.text_light);
-    draw_aligned_gil(amount, unit, theme.colors.text_gold, pad, true);
+    draw_aligned_gil(amount, unit, theme.colors.text_gold, pad, layout.width, true);
 end
 
 function M.render(settings, pricing, preview)
@@ -962,12 +1040,12 @@ function M.render(settings, pricing, preview)
     local scale = ui.get_module_scale(settings, 'tracker');
     local transparent = ui.is_transparent_theme(settings);
 
-    ui.draw_panel_background(draw_list, x, y, M.last_size.w, M.last_size.h, settings, 'tracker');
+    local layout_w = M.layout_w or 220;
+    ui.draw_panel_background(draw_list, x, y, layout_w, M.last_size.h, settings, 'tracker');
 
     imgui.SetNextWindowBgAlpha(0);
     imgui.SetNextWindowPos({ x, y }, ImGuiCond_Always);
-    local min_tracker_width = (MIN_COLUMN_WIDTH * 4) + (pad * 2) + 16;
-    imgui.SetNextWindowSize({ math.max(M.last_size.w, min_tracker_width), 0 }, ImGuiCond_Always);
+    imgui.SetNextWindowSize({ layout_w, 0 }, ImGuiCond_Always);
 
     if imgui.Begin('FushTracker##Display', ui.get_panel_open('tracker'), ui.get_panel_flags()) then
         imgui.SetWindowFontScale(scale);
@@ -976,31 +1054,40 @@ function M.render(settings, pricing, preview)
         local accuracy = M.get_accuracy(session);
         local net, gph = M.get_cached_gph(session, settings, pricing);
         local skill_current, skill_gain, skill_exact = M.get_skill_display(session, preview);
-        local skill_value = M.format_skill_value(skill_current, skill_gain, skill_exact) or '—';
+        local skill_line = M.format_skill_line(skill_current, skill_gain, skill_exact);
+        local fish_bites = (session.small_fish_bites or 0) + (session.large_fish_bites or 0);
 
-        draw_stat_row(
-            'row1',
-            { 'Casts', 'Bites', 'Accuracy', 'Skill' },
-            {
+        local row1 = {
+            labels = { 'Casts', 'Bites', 'Accuracy' },
+            values = {
                 format.format_int(session.lines_cast),
                 format.format_int(session.hooks),
                 format.format_percent(accuracy),
-                skill_value,
-            }
-        );
-
-        imgui.Spacing();
-
-        draw_stat_row(
-            'row2',
-            { 'Monsters', 'Items', 'Small Fish', 'Large Fish' },
-            {
+            },
+        };
+        local row2 = {
+            labels = { 'Monsters', 'Items', 'Fish' },
+            values = {
                 format.format_int(session.monster_bites or 0),
                 format.format_int(session.item_bites or 0),
-                format.format_int(session.small_fish_bites or 0),
-                format.format_int(session.large_fish_bites or 0),
-            }
+                format.format_int(fish_bites),
+            },
+        };
+
+        local layout = compute_tracker_layout(
+            session, pricing, settings, pad, net, gph, skill_line, row1, row2
         );
+        M.layout_w = layout.width;
+        M.last_size.w = layout.width;
+
+        if skill_line ~= nil then
+            ui.text_outlined_colored(skill_line, theme.colors.text_gold);
+            imgui.Spacing();
+        end
+
+        draw_stat_row('row1', row1.labels, row1.values, layout.stat_widths);
+        imgui.Spacing();
+        draw_stat_row('row2', row2.labels, row2.values, layout.stat_widths);
 
         if not transparent then
             imgui.PushStyleColor(ImGuiCol_Separator, theme.colors.border_gold or theme.colors.border);
@@ -1028,13 +1115,13 @@ function M.render(settings, pricing, preview)
                 local count = session.rewards[name];
                 local unit_price = tonumber(pricing[normalize_price_key(name)]) or 0;
                 local total_gil = unit_price * count;
-                draw_catch_row(name, count, total_gil, theme.colors.text_light, pad);
+                draw_catch_row(name, count, total_gil, theme.colors.text_light, pad, layout);
             end
 
             if show_bait then
                 local bait_qty = session.lines_cast;
                 local bait_spent = get_bait_spent(settings, session);
-                draw_catch_row('bait', bait_qty, -bait_spent, theme.colors.text_light, pad);
+                draw_catch_row('bait', bait_qty, -bait_spent, theme.colors.text_light, pad, layout);
             end
         end
 
@@ -1044,16 +1131,16 @@ function M.render(settings, pricing, preview)
             imgui.Spacing();
         end
 
-        draw_money_row('Net Gil', net, 'g', draw_list, pad, settings);
-        draw_money_row('Rate', gph, 'gph', draw_list, pad, settings);
+        draw_money_row('Net Gil', net, 'g', draw_list, pad, settings, layout);
+        draw_money_row('Rate', gph, 'gph', draw_list, pad, settings, layout);
 
         imgui.SetWindowFontScale(1.0);
 
         local size = { imgui.GetWindowSize() };
-        M.last_size.w = size[1];
         M.last_size.h = size[2];
+        M.last_size.w = layout.width;
 
-        ui.draw_panel_drag('tracker', settings.tracker.x, settings.tracker.y, size[1], size[2]);
+        ui.draw_panel_drag('tracker', settings.tracker.x, settings.tracker.y, layout.width, size[2]);
     end
     imgui.End();
 end
