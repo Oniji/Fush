@@ -42,6 +42,8 @@ local config = require('config');
 
 local ui = require('libs.ui');
 
+local fonts = require('libs.fonts');
+
 local bite = require('modules.bite');
 
 local tracker = require('modules.tracker');
@@ -114,12 +116,17 @@ ashita.events.register('load', 'load_cb', function ()
 
     tracker.refresh_player_name();
     tracker.bind_skill_settings(config.settings);
+    fonts.prewarm();
 
     if config.settings.reset_on_load[1] then
 
         tracker.reset_session();
 
         bite.reset();
+
+    else
+
+        tracker.restore_session();
 
     end
 
@@ -128,6 +135,8 @@ end);
 
 
 ashita.events.register('unload', 'unload_cb', function ()
+
+    tracker.persist_session();
 
     tracker.flush_fishing_skill();
 
@@ -307,13 +316,18 @@ ashita.events.register('d3d_present', 'present_cb', function ()
 
     ui.present_frame_start();
 
+    -- Config stays on Ashita's default ImGui font (Agave ~18px).
     config.render_editor();
+
+    fonts.push(config.settings);
 
     bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
 
     tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
 
     pool.render(config.settings);
+
+    fonts.pop();
 
 end);
 

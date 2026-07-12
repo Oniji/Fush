@@ -11,6 +11,18 @@ local UNITS_PER_DAY = 3456;
 local UNITS_PER_HOUR = 144;
 local UNITS_PER_MINUTE = 2.4;
 
+-- Weekday index 0 = Firesday (Ashita / common FFXI convention).
+M.WEEKDAYS = {
+    { name = 'Firesday',     element = 'Fire',      color = { 0.95, 0.35, 0.18, 1.0 } },
+    { name = 'Earthsday',    element = 'Earth',     color = { 0.78, 0.62, 0.28, 1.0 } },
+    { name = 'Watersday',    element = 'Water',     color = { 0.30, 0.52, 0.95, 1.0 } },
+    { name = 'Windsday',     element = 'Wind',      color = { 0.35, 0.82, 0.40, 1.0 } },
+    { name = 'Iceday',       element = 'Ice',       color = { 0.55, 0.85, 0.98, 1.0 } },
+    { name = 'Lightningday', element = 'Lightning', color = { 0.72, 0.45, 0.95, 1.0 } },
+    { name = 'Lightsday',    element = 'Light',     color = { 0.96, 0.94, 0.70, 1.0 } },
+    { name = 'Darksday',     element = 'Dark',      color = { 0.35, 0.28, 0.48, 1.0 } },
+};
+
 function M.get_timestamp()
     local p_vana_time = ashita.memory.find('FFXiMain.dll', 0, vana_pattern, 0, 0);
     if p_vana_time == nil or p_vana_time == 0 then
@@ -29,6 +41,14 @@ function M.get_timestamp()
         day_progress = day_units / UNITS_PER_DAY,
         day_units = day_units,
     };
+end
+
+function M.get_weekday_index(timestamp)
+    return (timestamp.day or 0) % 8;
+end
+
+function M.get_weekday(timestamp)
+    return M.WEEKDAYS[M.get_weekday_index(timestamp) + 1];
 end
 
 function M.format_time(timestamp)

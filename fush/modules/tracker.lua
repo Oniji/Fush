@@ -14,12 +14,16 @@ local imgui = require('imgui');
 local M = {
     last_size = { w = 280, h = 200 },
 };
-local MIN_COLUMN_WIDTH = 72;
+local MIN_COLUMN_WIDTH = 80;
 local RATE_UPDATE_MS = 30000;
 
 M.session = {
     lines_cast = 0,
-    hooks = 0,
+    hooks = 0, -- total bites (any hook type)
+    small_fish_bites = 0,
+    large_fish_bites = 0,
+    item_bites = 0,
+    monster_bites = 0,
     fish_caught = 0,
     items_caught = 0,
     monsters_caught = 0,
@@ -83,6 +87,15 @@ local function sanitize_item_name(name)
     return name;
 end
 
+local function title_case(name)
+    if name == nil or name == '' then
+        return name;
+    end
+    return (tostring(name):lower():gsub("(%a)([%w']*)", function(first, rest)
+        return first:upper() .. rest;
+    end));
+end
+
 local function normalize_price_key(name)
     if name == nil then
         return nil;
@@ -93,6 +106,10 @@ end
 local PREVIEW_SESSION = {
     lines_cast = 48,
     hooks = 42,
+    small_fish_bites = 18,
+    large_fish_bites = 16,
+    item_bites = 5,
+    monster_bites = 3,
     fish_caught = 35,
     items_caught = 4,
     monsters_caught = 1,
@@ -173,6 +190,196 @@ function M.flush_fishing_skill()
     if M.skill_dirty then
         M.persist_fishing_skill(true);
     end
+end
+
+local function ensure_session_snapshot()
+    if M.skill_settings == nil then
+        return nil;
+    end
+    if M.skill_settings.session_snapshot == nil then
+        M.skill_settings.session_snapshot = T{
+            active = T{ false },
+            lines_cast = T{ 0 },
+            hooks = T{ 0 },
+            small_fish_bites = T{ 0 },
+            large_fish_bites = T{ 0 },
+            item_bites = T{ 0 },
+            monster_bites = T{ 0 },
+            fish_caught = T{ 0 },
+            items_caught = T{ 0 },
+            monsters_caught = T{ 0 },
+            lost = T{ 0 },
+            broken = T{ 0 },
+            elapsed_ms = T{ 0 },
+            activity_ago_ms = T{ 0 },
+            skill_gain = T{ 0 },
+            skill_start = T{ -1 },
+            rewards = T{},
+        };
+    end
+    local snap = M.skill_settings.session_snapshot;
+    local defaults = {
+        active = false,
+        lines_cast = 0,
+        hooks = 0,
+        small_fish_bites = 0,
+        large_fish_bites = 0,
+        item_bites = 0,
+        monster_bites = 0,
+        fish_caught = 0,
+        items_caught = 0,
+        monsters_caught = 0,
+        lost = 0,
+        broken = 0,
+        elapsed_ms = 0,
+        activity_ago_ms = 0,
+        skill_gain = 0,
+        skill_start = -1,
+    };
+    for key, value in pairs(defaults) do
+        if snap[key] == nil then
+            snap[key] = T{ value };
+        end
+    end
+    if snap.rewards == nil then
+        snap.rewards = T{};
+    end
+    return snap;
+end
+
+local function session_has_data()
+    local s = M.session;
+    if s.lines_cast > 0 or s.hooks > 0 or s.fish_caught > 0 or s.items_caught > 0
+        or s.monsters_caught > 0 or s.lost > 0 or s.broken > 0 or (s.skill_gain or 0) > 0
+        or (s.small_fish_bites or 0) > 0 or (s.large_fish_bites or 0) > 0
+        or (s.item_bites or 0) > 0 or (s.monster_bites or 0) > 0 then
+        return true;
+    end
+    if s.first_cast_ms ~= nil and s.first_cast_ms > 0 then
+        return true;
+    end
+    for _, _ in pairs(s.rewards or {}) do
+        return true;
+    end
+    return false;
+end
+
+function M.persist_session()
+    local snap = ensure_session_snapshot();
+    if snap == nil then
+        return;
+    end
+
+    if not session_has_data() then
+        snap.active[1] = false;
+        snap.lines_cast[1] = 0;
+        snap.hooks[1] = 0;
+        snap.small_fish_bites[1] = 0;
+        snap.large_fish_bites[1] = 0;
+        snap.item_bites[1] = 0;
+        snap.monster_bites[1] = 0;
+        snap.fish_caught[1] = 0;
+        snap.items_caught[1] = 0;
+        snap.monsters_caught[1] = 0;
+        snap.lost[1] = 0;
+        snap.broken[1] = 0;
+        snap.elapsed_ms[1] = 0;
+        snap.activity_ago_ms[1] = 0;
+        snap.skill_gain[1] = 0;
+        snap.skill_start[1] = -1;
+        snap.rewards = T{};
+        return;
+    end
+
+    local s = M.session;
+    local now = ashita.time.clock()['ms'];
+    snap.active[1] = true;
+    snap.lines_cast[1] = s.lines_cast or 0;
+    snap.hooks[1] = s.hooks or 0;
+    snap.small_fish_bites[1] = s.small_fish_bites or 0;
+    snap.large_fish_bites[1] = s.large_fish_bites or 0;
+    snap.item_bites[1] = s.item_bites or 0;
+    snap.monster_bites[1] = s.monster_bites or 0;
+    snap.fish_caught[1] = s.fish_caught or 0;
+    snap.items_caught[1] = s.items_caught or 0;
+    snap.monsters_caught[1] = s.monsters_caught or 0;
+    snap.lost[1] = s.lost or 0;
+    snap.broken[1] = s.broken or 0;
+    snap.elapsed_ms[1] = (s.first_cast_ms ~= nil and s.first_cast_ms > 0)
+        and math.max(0, now - s.first_cast_ms) or 0;
+    snap.activity_ago_ms[1] = (s.last_activity_ms ~= nil and s.last_activity_ms > 0)
+        and math.max(0, now - s.last_activity_ms) or 0;
+    snap.skill_gain[1] = s.skill_gain or 0;
+    snap.skill_start[1] = (s.skill_start ~= nil) and s.skill_start or -1;
+
+    local rewards = T{};
+    for name, count in pairs(s.rewards or {}) do
+        if name ~= nil and name ~= '' then
+            rewards:append(string.format('%s:%d', tostring(name), tonumber(count) or 0));
+        end
+    end
+    snap.rewards = rewards;
+end
+
+function M.restore_session()
+    local snap = ensure_session_snapshot();
+    if snap == nil or not snap.active[1] then
+        return false;
+    end
+
+    local now = ashita.time.clock()['ms'];
+    M.session.lines_cast = snap.lines_cast[1] or 0;
+    M.session.hooks = snap.hooks[1] or 0;
+    M.session.small_fish_bites = snap.small_fish_bites[1] or 0;
+    M.session.large_fish_bites = snap.large_fish_bites[1] or 0;
+    M.session.item_bites = snap.item_bites[1] or 0;
+    M.session.monster_bites = snap.monster_bites[1] or 0;
+    M.session.fish_caught = snap.fish_caught[1] or 0;
+    M.session.items_caught = snap.items_caught[1] or 0;
+    M.session.monsters_caught = snap.monsters_caught[1] or 0;
+    M.session.lost = snap.lost[1] or 0;
+    M.session.broken = snap.broken[1] or 0;
+    M.session.skill_gain = snap.skill_gain[1] or 0;
+    M.session.current_hook = nil;
+
+    local skill_start = snap.skill_start[1];
+    if skill_start ~= nil and skill_start >= 0 then
+        M.session.skill_start = skill_start;
+    else
+        M.session.skill_start = nil;
+    end
+
+    local elapsed = snap.elapsed_ms[1] or 0;
+    if elapsed > 0 then
+        M.session.first_cast_ms = now - elapsed;
+    else
+        M.session.first_cast_ms = 0;
+    end
+
+    local ago = snap.activity_ago_ms[1] or 0;
+    if M.session.first_cast_ms > 0 then
+        M.session.last_activity_ms = now - ago;
+    else
+        M.session.last_activity_ms = 0;
+    end
+
+    M.session.rewards = T{};
+    for _, entry in ipairs(snap.rewards or {}) do
+        entry = trim_line(tostring(entry or ''));
+        if entry ~= '' then
+            local colon = entry:find(':');
+            if colon ~= nil and colon > 1 then
+                local name = trim_line(entry:sub(1, colon - 1));
+                local count = tonumber(trim_line(entry:sub(colon + 1))) or 0;
+                if name ~= '' and count > 0 then
+                    M.session.rewards[name] = count;
+                end
+            end
+        end
+    end
+
+    M.reset_rate_cache();
+    return true;
 end
 
 function M.restore_fishing_skill()
@@ -298,6 +505,14 @@ function M.get_skill_display(session, preview)
 end
 
 function M.format_skill_line(current, gain, exact)
+    local value = M.format_skill_value(current, gain, exact);
+    if value == nil then
+        return nil;
+    end
+    return 'Skill: ' .. value;
+end
+
+function M.format_skill_value(current, gain, exact)
     if current == nil then
         return nil;
     end
@@ -307,23 +522,27 @@ function M.format_skill_line(current, gain, exact)
         return nil;
     end
 
-    local line;
+    local value;
     if exact then
-        line = string.format('Skill: %.1f', current);
+        value = string.format('%.1f', current);
     else
         -- Tenths not yet proven; show whole level only.
-        line = string.format('Skill: %d', math.floor(current));
+        value = string.format('%d', math.floor(current));
     end
 
     if gain ~= nil and gain > 0.0001 then
-        line = line .. string.format(' (+%.1f)', gain);
+        value = value .. string.format(' (+%.1f)', gain);
     end
-    return line;
+    return value;
 end
 
 function M.reset_session()
     M.session.lines_cast = 0;
     M.session.hooks = 0;
+    M.session.small_fish_bites = 0;
+    M.session.large_fish_bites = 0;
+    M.session.item_bites = 0;
+    M.session.monster_bites = 0;
     M.session.fish_caught = 0;
     M.session.items_caught = 0;
     M.session.monsters_caught = 0;
@@ -338,6 +557,8 @@ function M.reset_session()
     M.restore_fishing_skill();
     M.session.skill_start = nil;
     M.reset_rate_cache();
+    M.persist_session();
+    settings.save();
 end
 
 function M.get_cached_gph(session, settings, pricing)
@@ -373,6 +594,16 @@ function M.record_hook(hook_type)
     M.touch_activity();
     M.session.hooks = M.session.hooks + 1;
     M.session.current_hook = hook_type;
+
+    if hook_type == 'Small Fish' then
+        M.session.small_fish_bites = (M.session.small_fish_bites or 0) + 1;
+    elseif hook_type == 'Large Fish' then
+        M.session.large_fish_bites = (M.session.large_fish_bites or 0) + 1;
+    elseif hook_type == constants.ITEM_HOOK_TYPE then
+        M.session.item_bites = (M.session.item_bites or 0) + 1;
+    elseif hook_type == constants.MONSTER_HOOK_TYPE then
+        M.session.monster_bites = (M.session.monster_bites or 0) + 1;
+    end
 end
 
 local function add_reward(name)
@@ -432,10 +663,11 @@ local function get_session(preview)
 end
 
 function M.get_accuracy(session)
-    if session.hooks == 0 then
+    if session.lines_cast == 0 then
         return 0;
     end
-    return (session.fish_caught / session.hooks) * 100;
+    -- Bite rate: bites / casts.
+    return ((session.hooks or 0) / session.lines_cast) * 100;
 end
 
 function M.get_total_worth(session, pricing)
@@ -606,27 +838,28 @@ function M.build_report_for(session, settings, pricing)
 
     local lines = T{};
     lines:append('~~~~~~ Fush Session ~~~~~~');
-    lines:append('Lines Cast: ' .. format.format_int(session.lines_cast));
-    lines:append('Hooks: ' .. format.format_int(session.hooks));
-    lines:append('Fish Caught: ' .. format.format_int(session.fish_caught));
-    lines:append('Items Caught: ' .. format.format_int(session.items_caught));
-    lines:append('Fish Accuracy: ' .. format.format_percent(accuracy));
-    lines:append('Lost / Broken: ' .. session.lost .. ' / ' .. session.broken);
+    lines:append('Casts: ' .. format.format_int(session.lines_cast));
+    lines:append('Bites: ' .. format.format_int(session.hooks));
+    lines:append('Accuracy: ' .. format.format_percent(accuracy));
+    lines:append('Monsters: ' .. format.format_int(session.monster_bites or 0));
+    lines:append('Items: ' .. format.format_int(session.item_bites or 0));
+    lines:append('Small Fish: ' .. format.format_int(session.small_fish_bites or 0));
+    lines:append('Large Fish: ' .. format.format_int(session.large_fish_bites or 0));
+    lines:append('Lost / Broken: ' .. (session.lost or 0) .. ' / ' .. (session.broken or 0));
     lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
 
     for name, count in pairs(session.rewards) do
         local key = string.lower(name);
         local price = tonumber(pricing[key]) or 0;
-        lines:append(name .. ': x' .. format.format_int(count) .. ' (' .. format.format_int(price * count) .. 'g)');
+        lines:append(title_case(name) .. ': x' .. format.format_int(count) .. ' (' .. format.format_int(price * count) .. 'g)');
     end
-
-    lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
 
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
         local bait_spent = session.lines_cast * settings.tracker.bait_cost[1];
-        lines:append('Bait Cost: ' .. format.format_int(bait_spent) .. 'g');
+        lines:append('Bait: x' .. format.format_int(session.lines_cast) .. ' (-' .. format.format_int(bait_spent) .. 'g)');
     end
 
+    lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
     lines:append('Net Gil: ' .. format.format_int(net) .. 'g (' .. format.format_int(gph) .. ' gph)');
     return table.concat(lines, '\n');
 end
@@ -676,6 +909,23 @@ local function draw_aligned_gil(amount, unit, color, pad, same_line)
     ui.text_outlined_colored(unit, color);
 end
 
+local function should_show_bait(settings, session)
+    return settings.tracker.subtract_bait[1]
+        and not settings.tracker.use_lure[1]
+        and session.lines_cast > 0;
+end
+
+local function get_bait_spent(settings, session)
+    return session.lines_cast * settings.tracker.bait_cost[1];
+end
+
+local function draw_catch_row(name, count, total_gil, color, pad)
+    ui.text_outlined_colored(title_case(name), color);
+    imgui.SameLine(pad + 140);
+    ui.text_outlined_colored(tostring(count), color);
+    draw_aligned_gil(total_gil, 'g', color, pad, true);
+end
+
 local function draw_money_row(label, amount, unit, draw_list, pad, settings)
     local transparent = ui.is_transparent_theme(settings);
 
@@ -716,7 +966,7 @@ function M.render(settings, pricing, preview)
 
     imgui.SetNextWindowBgAlpha(0);
     imgui.SetNextWindowPos({ x, y }, ImGuiCond_Always);
-    local min_tracker_width = (MIN_COLUMN_WIDTH * 3) + (pad * 2) + 16;
+    local min_tracker_width = (MIN_COLUMN_WIDTH * 4) + (pad * 2) + 16;
     imgui.SetNextWindowSize({ math.max(M.last_size.w, min_tracker_width), 0 }, ImGuiCond_Always);
 
     if imgui.Begin('FushTracker##Display', ui.get_panel_open('tracker'), ui.get_panel_flags()) then
@@ -726,20 +976,16 @@ function M.render(settings, pricing, preview)
         local accuracy = M.get_accuracy(session);
         local net, gph = M.get_cached_gph(session, settings, pricing);
         local skill_current, skill_gain, skill_exact = M.get_skill_display(session, preview);
-        local skill_line = M.format_skill_line(skill_current, skill_gain, skill_exact);
-
-        if skill_line ~= nil then
-            ui.text_outlined_colored(skill_line, theme.colors.text_gold);
-            imgui.Spacing();
-        end
+        local skill_value = M.format_skill_value(skill_current, skill_gain, skill_exact) or '—';
 
         draw_stat_row(
             'row1',
-            { 'Casts', 'Hooks', 'Fish' },
+            { 'Casts', 'Bites', 'Accuracy', 'Skill' },
             {
                 format.format_int(session.lines_cast),
                 format.format_int(session.hooks),
-                format.format_int(session.fish_caught),
+                format.format_percent(accuracy),
+                skill_value,
             }
         );
 
@@ -747,11 +993,12 @@ function M.render(settings, pricing, preview)
 
         draw_stat_row(
             'row2',
-            { 'Accuracy', 'Lost', 'Broken' },
+            { 'Monsters', 'Items', 'Small Fish', 'Large Fish' },
             {
-                format.format_percent(accuracy),
-                tostring(session.lost),
-                tostring(session.broken),
+                format.format_int(session.monster_bites or 0),
+                format.format_int(session.item_bites or 0),
+                format.format_int(session.small_fish_bites or 0),
+                format.format_int(session.large_fish_bites or 0),
             }
         );
 
@@ -769,7 +1016,8 @@ function M.render(settings, pricing, preview)
         end
         table.sort(reward_names);
 
-        if #reward_names > 0 then
+        local show_bait = should_show_bait(settings, session);
+        if #reward_names > 0 or show_bait then
             if not transparent then
                 imgui.Separator();
             else
@@ -780,11 +1028,13 @@ function M.render(settings, pricing, preview)
                 local count = session.rewards[name];
                 local unit_price = tonumber(pricing[normalize_price_key(name)]) or 0;
                 local total_gil = unit_price * count;
+                draw_catch_row(name, count, total_gil, theme.colors.text_light, pad);
+            end
 
-                ui.text_outlined_colored(name, theme.colors.text_light);
-                imgui.SameLine(pad + 140);
-                ui.text_outlined_colored(tostring(count), theme.colors.text_light);
-                draw_aligned_gil(total_gil, 'g', theme.colors.text_light, pad, true);
+            if show_bait then
+                local bait_qty = session.lines_cast;
+                local bait_spent = get_bait_spent(settings, session);
+                draw_catch_row('bait', bait_qty, -bait_spent, theme.colors.text_light, pad);
             end
         end
 

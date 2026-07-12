@@ -34,17 +34,6 @@ local function build_notches(timestamp)
     return notches;
 end
 
-local function draw_time_label(draw_list, text, x, y, settings)
-    local size = ui.measure_text(text);
-    local draw_x = x - size;
-
-    if ui.is_transparent_theme(settings) then
-        ui.draw_text_outlined(draw_list, draw_x, y, text, { 1, 1, 1, 1 }, { 0, 0, 0, 1 }, 1);
-    else
-        draw_list:AddText({ draw_x, y }, imgui.GetColorU32(theme.colors.text_light), text);
-    end
-end
-
 local function update_restock_pulse(progress)
     local now = ashita.time.clock()['ms'];
     local last = M.pulse.last_progress;
@@ -103,6 +92,7 @@ function M.render(settings)
     local line_h = imgui.GetTextLineHeight() * scale;
     local label_row_h = line_h + 2;
     local countdown_h = line_h + 4;
+    -- Top row (restock + time) + bar + notch labels under the bar.
     local content_h = countdown_h + height + label_row_h + 4;
 
     ui.draw_panel_background(draw_list, x, y, M.last_size.w, M.last_size.h, settings, 'pool');
@@ -117,6 +107,31 @@ function M.render(settings)
 
         local countdown_text = 'Next restock: ' .. countdown;
         ui.text_outlined_colored(countdown_text, theme.colors.text_light);
+
+        -- Right-align element dot + time so the time's trailing edge matches the bar end.
+        local weekday = vana.get_weekday(timestamp);
+        local time_w, time_h = ui.measure_text(time_text);
+        local circle_r = math.max(3.0, time_h * 0.28);
+        local gap = 5.0;
+        -- Account for 1px text outline so the visible trailing edge meets the bar end.
+        local outline_pad = 1.0;
+        local cluster_w = (circle_r * 2.0) + gap + time_w + outline_pad;
+        local bar_right = pad + width;
+        local cluster_x = bar_right - cluster_w;
+
+        imgui.SetCursorPos({ cluster_x, pad });
+        local sx, sy = imgui.GetCursorScreenPos();
+        if type(sx) == 'table' then
+            sy = sx.y or sx[2] or 0;
+            sx = sx.x or sx[1] or 0;
+        end
+        local cx = sx + circle_r;
+        local cy = sy + (time_h * 0.5);
+        draw_list:AddCircleFilled({ cx, cy }, circle_r, imgui.GetColorU32(weekday.color), 20);
+        draw_list:AddCircle({ cx, cy }, circle_r, imgui.GetColorU32({ 0, 0, 0, 0.85 }), 20, 1.25);
+
+        imgui.SetCursorPos({ cluster_x + (circle_r * 2.0) + gap, pad });
+        ui.text_outlined_colored(time_text, theme.colors.text_light);
 
         imgui.SetCursorPos({ pad, pad + countdown_h });
         local bar_x, bar_y = imgui.GetCursorScreenPos();
@@ -145,11 +160,9 @@ function M.render(settings)
         end
 
         ui.draw_notches(draw_list, bar_x, bar_y, width, height, notches, timestamp.day_progress, settings);
-        ui.draw_time_cursor(draw_list, bar_x, bar_y, width, timestamp.day_progress, settings);
 
         local labels = ui.layout_notch_labels(notches, bar_x, width);
-        draw_time_label(draw_list, time_text, bar_x + width, bar_y + height + 2, settings);
-        ui.draw_notch_labels(draw_list, labels, bar_y + height + 14, settings);
+        ui.draw_notch_labels(draw_list, labels, bar_y + height + 4, settings);
 
         local size = { imgui.GetWindowSize() };
         M.last_size.w = math.max(size[1], width + pad * 2);

@@ -24,6 +24,8 @@ local theme = require('libs.theme');
 
 local ui = require('libs.ui');
 
+local fonts = require('libs.fonts');
+
 local attribution = require('libs.attribution');
 
 local tracker = require('modules.tracker');
@@ -38,9 +40,7 @@ local M = {};
 
 M.default_settings = T{
 
-    opacity = T{ 0.92 },
-
-    font_scale = T{ 1.0 },
+    font_size = T{ 13 },
 
     reset_on_load = T{ false },
 
@@ -51,41 +51,63 @@ M.default_settings = T{
         level = T{ 0 },
     },
 
+    -- Survives /addon reload unless Reset Session On Load is enabled.
+    session_snapshot = T{
+        active = T{ false },
+        lines_cast = T{ 0 },
+        hooks = T{ 0 },
+        small_fish_bites = T{ 0 },
+        large_fish_bites = T{ 0 },
+        item_bites = T{ 0 },
+        monster_bites = T{ 0 },
+        fish_caught = T{ 0 },
+        items_caught = T{ 0 },
+        monsters_caught = T{ 0 },
+        lost = T{ 0 },
+        broken = T{ 0 },
+        elapsed_ms = T{ 0 },
+        activity_ago_ms = T{ 0 },
+        skill_gain = T{ 0 },
+        skill_start = T{ -1 },
+        rewards = T{},
+    },
+
     ui = T{
-        background_theme = T{ 'DarkGold' },
+        background_theme = T{ 'OceanBlue' },
+        font_family = T{ 'Default (Agave)' },
         bite = T{
             scale = T{ 1.0 },
             padding = T{ 8 },
             bg_scale = T{ 1.0 },
             border_scale = T{ 1.0 },
-            background_opacity = T{ 1.0 },
+            background_opacity = T{ 0.8 },
             border_opacity = T{ 0.9 },
-            border_thickness = T{ 2 },
+            border_thickness = T{ 0 },
             panel_rounding = T{ 6 },
         },
         tracker = T{
             scale = T{ 1.0 },
-            padding = T{ 8 },
+            padding = T{ 6 },
             bg_scale = T{ 1.0 },
             border_scale = T{ 1.0 },
-            background_opacity = T{ 1.0 },
+            background_opacity = T{ 0.60 },
             border_opacity = T{ 0.9 },
-            border_thickness = T{ 2 },
+            border_thickness = T{ 0 },
             panel_rounding = T{ 6 },
         },
         pool = T{
             scale = T{ 1.0 },
-            padding = T{ 8 },
+            padding = T{ 6 },
             bg_scale = T{ 1.0 },
             border_scale = T{ 1.0 },
-            background_opacity = T{ 1.0 },
+            background_opacity = T{ 0.60 },
             border_opacity = T{ 0.9 },
-            border_thickness = T{ 2 },
+            border_thickness = T{ 0 },
             panel_rounding = T{ 6 },
-            show_bookends = T{ true },
+            show_bookends = T{ false },
             bookend_size = T{ 10 },
-            bar_border_thickness = T{ 2 },
-            no_bookend_rounding = T{ 4 },
+            bar_border_thickness = T{ 0 },
+            no_bookend_rounding = T{ 0 },
         },
         background_gradient_start = T{ '#01122b' },
         background_gradient_end = T{ '#061c39' },
@@ -184,6 +206,15 @@ function M.ensure_ui_settings()
 
     end
 
+    if M.settings.font_size == nil then
+        M.settings.font_size = T{ 13 };
+    else
+        local size = tonumber(M.settings.font_size[1]) or 13;
+        if size < 6 then size = 6; end
+        if size > 30 then size = 30; end
+        M.settings.font_size[1] = math.floor(size + 0.5);
+    end
+
 
 
     local defaults = M.default_settings.ui;
@@ -214,6 +245,10 @@ function M.ensure_ui_settings()
     ensure_ui_section('tracker');
     ensure_ui_section('pool');
 
+    if M.settings.ui.font_family == nil then
+        M.settings.ui.font_family = T{ 'Default (Agave)' };
+    end
+
     for _, map in ipairs(legacy_map) do
         if M.settings.ui[map.old] ~= nil then
             if M.settings.ui.bite[map.new] == nil then M.settings.ui.bite[map.new] = M.settings.ui[map.old]; end
@@ -233,6 +268,39 @@ function M.ensure_ui_settings()
             M.settings.ui.pool[map.new] = M.settings.ui[map.old];
         end
     end
+
+    -- Removed themes: map legacy choices to OceanBlue.
+    local theme_name = M.settings.ui.background_theme and M.settings.ui.background_theme[1];
+    if theme_name == 'Transparent' or theme_name == 'Window1' or theme_name == nil or theme_name == '' then
+        M.settings.ui.background_theme = T{ 'OceanBlue' };
+    end
+
+    -- Force locked appearance values AFTER legacy migration (controls removed from UI).
+    local function lock(module_cfg, key, value)
+        if module_cfg[key] == nil then
+            module_cfg[key] = T{ value };
+        else
+            module_cfg[key][1] = value;
+        end
+    end
+
+    lock(M.settings.ui.bite, 'padding', 8);
+    lock(M.settings.ui.bite, 'bg_scale', 1.0);
+    lock(M.settings.ui.bite, 'border_scale', 1.0);
+    lock(M.settings.ui.bite, 'panel_rounding', 6);
+
+    lock(M.settings.ui.tracker, 'padding', 6);
+    lock(M.settings.ui.tracker, 'bg_scale', 1.0);
+    lock(M.settings.ui.tracker, 'border_scale', 1.0);
+    lock(M.settings.ui.tracker, 'panel_rounding', 6);
+
+    lock(M.settings.ui.pool, 'padding', 6);
+    lock(M.settings.ui.pool, 'bg_scale', 1.0);
+    lock(M.settings.ui.pool, 'border_scale', 1.0);
+    lock(M.settings.ui.pool, 'panel_rounding', 6);
+    lock(M.settings.ui.pool, 'show_bookends', false);
+    lock(M.settings.ui.pool, 'bar_border_thickness', 0);
+    lock(M.settings.ui.pool, 'no_bookend_rounding', 0);
 
     for key, value in pairs(defaults) do
         if type(value) ~= 'table' or (key ~= 'bite' and key ~= 'tracker' and key ~= 'pool') then
@@ -330,15 +398,31 @@ end
 
 
 
+-- Remaining content-region height for panels that should grow with the window.
+local function fill_height(min_h)
+    min_h = min_h or 80;
+    local avail_w, avail_h = imgui.GetContentRegionAvail();
+    if type(avail_w) == 'table' then
+        avail_h = avail_w[2];
+    end
+    avail_h = tonumber(avail_h) or 0;
+    if avail_h < min_h then
+        return min_h;
+    end
+    return avail_h;
+end
+
 local function render_general()
 
-    imgui.Text('Display');
+    imgui.Text('Modules');
 
-    imgui.BeginChild('fush_general', { 0, 200 }, true);
+    imgui.BeginChild('fush_modules', { 0, 130 }, true);
 
-    imgui.SliderFloat('Opacity', M.settings.opacity, 0.125, 1.0, '%.2f');
+    imgui.Checkbox('Bite Tracker', M.settings.bite.visible);
 
-    imgui.SliderFloat('Font Scale', M.settings.font_scale, 0.5, 2.0, '%.2f');
+    imgui.Checkbox('Session Tracker', M.settings.tracker.visible);
+
+    imgui.Checkbox('Pool Resupply Bar', M.settings.pool.visible);
 
     imgui.Checkbox('Reset Session On Load', M.settings.reset_on_load);
 
@@ -346,15 +430,22 @@ local function render_general()
 
 
 
-    imgui.Text('Modules');
+    imgui.Text('Fonts');
 
-    imgui.BeginChild('fush_modules', { 0, 110 }, true);
+    imgui.BeginChild('fush_fonts', { 0, 100 }, true);
 
-    imgui.Checkbox('Bite Tracker', M.settings.bite.visible);
+    if M.settings.font_size == nil then
+        M.settings.font_size = T{ 13 };
+    end
+    if imgui.InputInt('Font Size', M.settings.font_size) then
+        if M.settings.font_size[1] < 6 then M.settings.font_size[1] = 6; end
+        if M.settings.font_size[1] > 30 then M.settings.font_size[1] = 30; end
+    end
 
-    imgui.Checkbox('Session Tracker', M.settings.tracker.visible);
-
-    imgui.Checkbox('Pool Resupply Bar', M.settings.pool.visible);
+    if M.settings.ui.font_family == nil then
+        M.settings.ui.font_family = T{ 'Default (Agave)' };
+    end
+    fonts.render_combo(M.settings.ui.font_family);
 
     imgui.EndChild();
 
@@ -364,38 +455,18 @@ end
 
 local function render_appearance()
 
-    imgui.BeginChild('fush_appearance', { 0, 360 }, true);
-
-
+    imgui.BeginChild('fush_appearance', { 0, fill_height(280) }, true);
 
     imgui.Text('Window Theme');
 
-    local themes = T{ 'DarkGold', 'OceanBlue', 'Transparent', 'Window1', 'Plain' };
+    local themes = T{ 'DarkGold', 'OceanBlue', 'Plain' };
 
     local current_theme = M.settings.ui.background_theme[1];
 
     for _, theme_name in ipairs(themes) do
 
         if imgui.RadioButton(theme_name, current_theme == theme_name) then
-
             M.settings.ui.background_theme[1] = theme_name;
-            if theme_name == 'Plain' then
-                M.settings.ui.bite.background_opacity[1] = 0.5;
-                M.settings.ui.tracker.background_opacity[1] = 0.5;
-                M.settings.ui.pool.background_opacity[1] = 0.5;
-                M.settings.ui.bite.border_thickness[1] = 0;
-                M.settings.ui.tracker.border_thickness[1] = 0;
-                M.settings.ui.pool.border_thickness[1] = 0;
-            elseif theme_name == 'OceanBlue' then
-                -- Sensible defaults on theme switch; sliders remain free to change after.
-                M.settings.ui.bite.background_opacity[1] = 0.3;
-                M.settings.ui.tracker.background_opacity[1] = 0.3;
-                M.settings.ui.pool.background_opacity[1] = 0.3;
-                M.settings.ui.bite.border_thickness[1] = 2;
-                M.settings.ui.tracker.border_thickness[1] = 2;
-                M.settings.ui.pool.border_thickness[1] = 2;
-            end
-
         end
 
         imgui.SameLine();
@@ -404,32 +475,17 @@ local function render_appearance()
 
     imgui.NewLine();
 
-
-
-    local function render_module_style_section(label, module_style, is_pool)
+    local function render_module_style_section(label, module_style)
         imgui.Separator();
         imgui.Text(label);
         imgui.SliderFloat(label .. ' Scale', module_style.scale, 0.50, 2.50, '%.2f');
-        imgui.SliderInt(label .. ' Panel Padding', module_style.padding, 0, 24);
-        imgui.SliderFloat(label .. ' Background Scale', module_style.bg_scale, 0.5, 2.0, '%.2f');
-        imgui.SliderFloat(label .. ' Border Scale', module_style.border_scale, 0.5, 2.0, '%.2f');
         imgui.SliderFloat(label .. ' Background Opacity', module_style.background_opacity, 0.0, 1.0, '%.2f');
         imgui.SliderInt(label .. ' Border Thickness', module_style.border_thickness, 0, 6);
-        imgui.SliderInt(label .. ' Panel Roundness', module_style.panel_rounding, 0, 16);
-
-        if is_pool then
-            imgui.Checkbox('Pool Show Bar Bookends', module_style.show_bookends);
-            imgui.SliderInt('Pool Bookend Size', module_style.bookend_size, 5, 20);
-            imgui.SliderInt('Pool Bar Border Thickness', module_style.bar_border_thickness, 0, 6);
-            imgui.SliderInt('Pool Bar Roundness', module_style.no_bookend_rounding, 0, 16);
-        end
     end
 
-    render_module_style_section('Bite', M.settings.ui.bite, false);
-    render_module_style_section('Session', M.settings.ui.tracker, false);
-    render_module_style_section('Pool', M.settings.ui.pool, true);
-
-
+    render_module_style_section('Bite', M.settings.ui.bite);
+    render_module_style_section('Session', M.settings.ui.tracker);
+    render_module_style_section('Pool', M.settings.ui.pool);
 
     imgui.EndChild();
 
@@ -439,7 +495,7 @@ end
 
 local function render_tracker()
 
-    imgui.BeginChild('fush_tracker_cfg', { 0, 220 }, true);
+    imgui.BeginChild('fush_tracker_cfg', { 0, 123 }, true);
 
     imgui.InputInt('Display Timeout (sec)', M.settings.tracker.display_timeout);
 
@@ -457,7 +513,7 @@ local function render_tracker()
 
     local temp = T{ table.concat(M.settings.tracker.item_index, '\n') };
 
-    if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, 180 }) then
+    if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, fill_height(120) }) then
 
         M.settings.tracker.item_index = split(temp[1], '\n');
         M.update_pricing();
@@ -468,11 +524,17 @@ end
 
 
 
+local function do_reset_defaults()
+    settings.reset();
+    M.ensure_ui_settings();
+    ui.bind(M.settings, M.editor_open);
+    M.update_pricing();
+    print(chat.header('fush'):append(chat.message('Settings reset.')));
+end
+
 local function render_positions()
 
-    imgui.BeginChild('fush_positions', { 0, 200 }, true);
-
-
+    imgui.BeginChild('fush_positions', { 0, 280 }, true);
 
     local bite_pos = T{ M.settings.bite.x[1], M.settings.bite.y[1] };
     if imgui.InputInt2('Bite Seam Position', bite_pos) then
@@ -481,35 +543,43 @@ local function render_positions()
     end
     imgui.TextDisabled('Bite X is the center seam; halves grow outward from it.');
 
-
-
     local tracker_pos = T{ M.settings.tracker.x[1], M.settings.tracker.y[1] };
-
     if imgui.InputInt2('Tracker Position', tracker_pos) then
-
         M.settings.tracker.x[1] = tracker_pos[1];
-
         M.settings.tracker.y[1] = tracker_pos[2];
-
     end
-
-
 
     local pool_pos = T{ M.settings.pool.x[1], M.settings.pool.y[1] };
-
     if imgui.InputInt2('Pool Bar Position', pool_pos) then
-
         M.settings.pool.x[1] = pool_pos[1];
-
         M.settings.pool.y[1] = pool_pos[2];
-
     end
 
-
-
     imgui.InputInt('Pool Bar Width', M.settings.pool.width);
-
     imgui.InputInt('Pool Bar Height', M.settings.pool.height);
+
+    imgui.Separator();
+    imgui.Spacing();
+
+    if imgui.Button('Reset Defaults') then
+        imgui.OpenPopup('FushResetDefaults##Confirm');
+    end
+    imgui.TextDisabled('Restores all Fush settings to factory defaults.');
+
+    if imgui.BeginPopupModal('FushResetDefaults##Confirm', nil, ImGuiWindowFlags_AlwaysAutoResize) then
+        imgui.Text('Reset all Fush settings to defaults?');
+        imgui.TextWrapped('This cannot be undone. Saved positions, prices, fonts, and appearance will be lost.');
+        imgui.Spacing();
+        if imgui.Button('Confirm Reset', { 140, 0 }) then
+            do_reset_defaults();
+            imgui.CloseCurrentPopup();
+        end
+        imgui.SameLine();
+        if imgui.Button('Cancel', { 140, 0 }) then
+            imgui.CloseCurrentPopup();
+        end
+        imgui.EndPopup();
+    end
 
     imgui.EndChild();
 
@@ -575,22 +645,6 @@ function M.render_editor()
 
         end
 
-        imgui.SameLine();
-
-        if imgui.Button('Reset Defaults') then
-
-            settings.reset();
-
-            M.ensure_ui_settings();
-
-            ui.bind(M.settings, M.editor_open);
-
-            M.update_pricing();
-
-            print(chat.header('fush'):append(chat.message('Settings reset.')));
-
-        end
-
 
 
         imgui.Separator();
@@ -633,7 +687,7 @@ function M.render_editor()
 
             if imgui.BeginTabItem('About') then
 
-                imgui.BeginChild('fush_about', { 0, 360 }, true);
+                imgui.BeginChild('fush_about', { 0, fill_height(200) }, true);
 
                 ui.render_about();
 
@@ -650,8 +704,6 @@ function M.render_editor()
             imgui.EndTabBar();
 
         end
-
-        ui.render_credit_footer();
 
     end
 

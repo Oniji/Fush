@@ -50,13 +50,17 @@ end
 
 local function get_theme_name(settings)
     local ui = ui_settings(settings);
-    return ui and ui.background_theme[1] or 'DarkGold';
+    local name = ui and ui.background_theme[1] or 'OceanBlue';
+    if name == 'Transparent' or name == 'Window1' then
+        return 'OceanBlue';
+    end
+    return name;
 end
 
 local MODULE_DEFAULTS = {
-    bite = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 1.0, border_opacity = 0.9, border_thickness = 2, panel_rounding = 6 },
-    tracker = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 1.0, border_opacity = 0.9, border_thickness = 2, panel_rounding = 6 },
-    pool = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 1.0, border_opacity = 0.9, border_thickness = 2, panel_rounding = 6, show_bookends = true, bookend_size = 10, bar_border_thickness = 2, no_bookend_rounding = 4 },
+    bite = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.8, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
+    tracker = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
+    pool = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6, show_bookends = false, bookend_size = 10, bar_border_thickness = 0, no_bookend_rounding = 0 },
 };
 
 local function module_settings(settings, module_name)
@@ -150,10 +154,13 @@ end
 
 function M.get_module_scale(settings, module_name)
     local module_cfg, defaults = module_settings(settings, module_name);
+    local module_scale = defaults.scale;
     if module_cfg and module_cfg.scale then
-        return module_cfg.scale[1];
+        module_scale = module_cfg.scale[1];
     end
-    return defaults.scale;
+
+    local fonts = require('libs.fonts');
+    return module_scale * fonts.get_scale(settings);
 end
 
 function M.get_padding(settings, module_name)
@@ -167,12 +174,12 @@ end
 function M.get_background_options(settings, module_name)
     local ui = ui_settings(settings);
     if ui == nil then
-        return { theme = 'DarkGold', padding = 8 };
+        return { theme = 'OceanBlue', padding = 8 };
     end
 
     local module_cfg, defaults = module_settings(settings, module_name);
     local opts = {
-        theme = ui.background_theme[1],
+        theme = get_theme_name(settings),
         padding = module_cfg and module_cfg.padding and module_cfg.padding[1] or defaults.padding,
         paddingY = module_cfg and module_cfg.padding and module_cfg.padding[1] or defaults.padding,
         bgScale = module_cfg and module_cfg.bg_scale and module_cfg.bg_scale[1] or defaults.bg_scale,
@@ -204,7 +211,7 @@ function M.draw_dark_panel(draw_list, x, y, w, h, settings, module_name)
     local opacity = opts.bgOpacity or 0.92;
     local rounding = opts.panelRounding or 6;
     local thickness = opts.borderThickness or 2;
-    local theme_name = opts.theme or 'DarkGold';
+    local theme_name = opts.theme or 'OceanBlue';
     local palette = theme.get_palette(theme_name);
 
     local bx = x - pad;
@@ -237,7 +244,7 @@ end
 
 function M.draw_panel_background(draw_list, x, y, w, h, settings, module_name)
     local opts = M.get_background_options(settings, module_name);
-    local theme_name = opts.theme or 'DarkGold';
+    local theme_name = opts.theme or 'OceanBlue';
 
     if theme_name == 'Transparent' then
         return;
@@ -429,11 +436,23 @@ function M.text_outlined_same_line(text, color)
     M.text_outlined_colored(text, color);
 end
 
+local function is_shift_held()
+    local io = nil;
+    if imgui.GetIO ~= nil then
+        io = imgui.GetIO();
+    end
+    if io == nil then
+        io = imgui.io;
+    end
+    return io ~= nil and io.KeyShift == true;
+end
+
 function M.draw_panel_drag(id, x_ref, y_ref, width, height, screen_x, screen_y)
-    if not M.is_editor_open() then
-        if active_drag and active_drag.id == id then
-            active_drag = nil;
-        end
+    local editor_open = M.is_editor_open();
+    local dragging_this = active_drag ~= nil and active_drag.id == id;
+
+    -- Config open: free drag. Config closed: Shift+LMB to start; keep dragging until LMB up.
+    if not editor_open and not is_shift_held() and not dragging_this then
         return;
     end
 
@@ -466,7 +485,7 @@ function M.draw_panel_drag(id, x_ref, y_ref, width, height, screen_x, screen_y)
     local hovering = mouse_x >= win_x and mouse_x <= (win_x + win_w)
         and mouse_y >= win_y and mouse_y <= (win_y + win_h);
 
-    if hovering and imgui.IsMouseClicked(0) then
+    if hovering and imgui.IsMouseClicked(0) and (editor_open or is_shift_held()) then
         active_drag = {
             id = id,
             start_mouse_x = mouse_x,

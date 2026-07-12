@@ -32,10 +32,28 @@ local PREVIEW = {
 local CORNER_LEFT = ImDrawCornerFlags_Left;
 local CORNER_RIGHT = ImDrawCornerFlags_Right;
 
+-- Longest typical label; both halves use this width so text never clips.
+local SIZING_LABEL = 'Large Fish';
+-- Extra horizontal room beyond the label at scale 1.0 (each side).
+local BASE_H_PAD = 12;
+local BASE_V_PAD = 5;
+
 local function clamp01(v)
     if v < 0 then return 0; end
     if v > 1 then return 1; end
     return v;
+end
+
+-- Slightly darken a hex color for the right half so matching colors stay distinct.
+local RIGHT_DARKEN = 0.82;
+
+local function darken_hex(hex, factor)
+    factor = factor or RIGHT_DARKEN;
+    local col = colorLib.HexToImGui(hex);
+    local r = math.floor(clamp01((col[1] or 1) * factor) * 255 + 0.5);
+    local g = math.floor(clamp01((col[2] or 1) * factor) * 255 + 0.5);
+    local b = math.floor(clamp01((col[3] or 1) * factor) * 255 + 0.5);
+    return string.format('#%02X%02X%02X', r, g, b);
 end
 
 local function color_to_u32(hex_or_vec, alpha)
@@ -161,11 +179,10 @@ local function draw_half(draw_list, x, y, w, h, color_hex, text, scale, rounding
     local tx = x + math.max(0, (w - text_w) / 2);
     local ty = y + math.max(0, (h - text_h) / 2);
 
-    -- DrawList AddText does not use SetWindowFontScale; bake scale via font size if available.
+    -- DrawList AddText ignores SetWindowFontScale; bake scale into font size.
     local font = imgui.GetFont();
     local font_size = imgui.GetFontSize() * scale;
     if font ~= nil and draw_list.AddText ~= nil then
-        -- Prefer sized overload when present: AddText(font, size, pos, col, text)
         local ok = pcall(function()
             local outline = color_to_u32({ 0, 0, 0, 0.75 }, 0.75);
             local fill = color_to_u32({ 1, 1, 1, 1 }, 1);
@@ -204,34 +221,29 @@ function M.render(settings, preview)
     -- Stored X is the shared seam between left/right halves.
     local seam_x = settings.bite.x[1];
     local y = settings.bite.y[1];
+    -- Includes Appearance Scale × Font Size scale so panel + text grow together.
     local scale = ui.get_module_scale(settings, 'bite');
-    local h_pad = math.max(6, ui.get_padding(settings, 'bite')) * scale;
-    local v_pad = math.max(3, math.floor(ui.get_padding(settings, 'bite') * 0.45)) * scale;
+    local h_pad = math.max(BASE_H_PAD, ui.get_padding(settings, 'bite')) * scale;
+    local v_pad = math.max(BASE_V_PAD, math.floor(ui.get_padding(settings, 'bite') * 0.45)) * scale;
     local opacity = get_bg_opacity(settings);
-    local rounding = get_rounding(settings);
+    local rounding = get_rounding(settings) * scale;
     local draw_list = drawing.GetUIDrawList();
 
-    local hook_w, hook_h = measure_scaled(hook, scale);
-    local feel_w = select(1, measure_scaled(feel_label, scale));
-    local line_h = select(2, measure_scaled('Ag', scale));
-
-    local left_w = math.max(hook_w + (h_pad * 2), 54 * scale);
-    local right_w = math.max(feel_w + (h_pad * 2), 42 * scale);
+    local ref_w, line_h = measure_scaled(SIZING_LABEL, scale);
+    -- Equal fixed halves: sized for "Large Fish" + padding at current scale.
+    local half_w = ref_w + (h_pad * 2);
     local height = line_h + (v_pad * 2);
-    local width = left_w + right_w;
-    local panel_x = seam_x - left_w;
+    local width = half_w * 2;
+    local panel_x = seam_x - half_w;
 
-    -- Draw entirely on the background draw list — no ImGui host window
-    -- (avoids the titled "debug" popup some Ashita builds show for Begin).
-    draw_half(draw_list, panel_x, y, left_w, height, hook_color, hook, scale, rounding, CORNER_LEFT, opacity);
-    draw_half(draw_list, seam_x, y, right_w, height, feel_color, feel_label, scale, rounding, CORNER_RIGHT, opacity);
+    draw_half(draw_list, panel_x, y, half_w, height, hook_color, hook, scale, rounding, CORNER_LEFT, opacity);
+    draw_half(draw_list, seam_x, y, half_w, height, darken_hex(feel_color), feel_label, scale, rounding, CORNER_RIGHT, opacity);
 
     M.last_size.w = width;
     M.last_size.h = height;
-    M.last_left_w = left_w;
-    M.last_right_w = right_w;
+    M.last_left_w = half_w;
+    M.last_right_w = half_w;
 
-    -- Drag moves the seam anchor; halves grow around it.
     ui.draw_panel_drag('bite', settings.bite.x, settings.bite.y, width, height, panel_x, y);
 end
 
