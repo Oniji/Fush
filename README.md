@@ -12,7 +12,8 @@ UI rendering adapted from [XIUI](https://github.com/tirem/XIUI) (GPLv3).
 
 Large on-screen overlay for hook type (small fish, large fish, item, monster) and feeling as soon as the bite message appears.
 
-![Bite tracker](docs/screenshots/bite.png)
+<img width="288" height="63" alt="image" src="https://github.com/user-attachments/assets/136c34b0-ecc2-4d14-8434-9395f01f97b1" />
+
 
 ### Session tracker
 
@@ -25,7 +26,7 @@ Live session panel with:
 
 Session stats persist across addon reloads unless **Reset Session On Load** is enabled.
 
-![Session tracker](docs/screenshots/session.png)
+<img width="259" height="249" alt="image" src="https://github.com/user-attachments/assets/20c3ea0e-1494-4473-a8b3-9001715ea8be" />
 
 ### Pool resupply bar
 
@@ -33,13 +34,13 @@ Vanadiel-day progress bar with notches at HorizonXI pool restock hours (`00:00`,
 
 > **HorizonXI only.** Restock hours and pool timing are specific to HorizonXI and will not match retail or other private servers.
 
-![Pool resupply bar](docs/screenshots/pool.png)
+<img width="421" height="97" alt="image" src="https://github.com/user-attachments/assets/f9687272-4c76-4c80-bbe3-a18e8ab448ce" />
 
 ### Config UI
 
 In-game settings for module visibility, fonts, themes, per-module opacity, tracker prices/bait, and panel layout. Hold **Shift** and left-drag a panel to move it when the config window is closed (or drag freely while config is open).
 
-![Config](docs/screenshots/config.png)
+<img width="427" height="541" alt="image" src="https://github.com/user-attachments/assets/a8d348b0-b8ee-41bd-9d80-d91b5ed3d89d" />
 
 ---
 
