@@ -18,7 +18,7 @@
 
 addon.name = 'fush';
 
-addon.author = 'Fush';
+addon.author = 'Saraji';
 
 addon.version = '0.1.0';
 

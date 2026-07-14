@@ -566,6 +566,7 @@ end
 function M.render_about()
     imgui.Text('Fush');
     imgui.TextDisabled(string.format('Version %s', addon.version));
+    imgui.TextDisabled('Created by Saraji');
     imgui.Separator();
     imgui.TextWrapped(attribution.XIUI_NOTICE);
     imgui.Spacing();

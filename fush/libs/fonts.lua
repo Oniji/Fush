@@ -148,7 +148,7 @@ function M.push(settings)
         return;
     end
 
-    local label = 'Default (Agave)';
+    local label = 'Tahoma Bold';
     if settings ~= nil and settings.ui ~= nil and settings.ui.font_family ~= nil then
         label = settings.ui.font_family[1] or label;
     end
