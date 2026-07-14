@@ -52,6 +52,16 @@ M.skill_dirty = false;
 M.skill_last_save_ms = 0;
 local SKILL_SAVE_DEBOUNCE_MS = 2000;
 
+-- Session is only memory-resident until flushed. Autosave ~every 10s when dirty
+-- so a hard crash loses at most ~one interval of activity.
+M.session_dirty = false;
+M.session_last_save_ms = 0;
+local SESSION_AUTOSAVE_MS = 10000;
+
+local function mark_session_dirty()
+    M.session_dirty = true;
+end
+
 M.rate_cache = {
     gph = 0,
     net = nil,
@@ -187,6 +197,10 @@ function M.persist_fishing_skill(force)
     if force or (now - (M.skill_last_save_ms or 0)) >= SKILL_SAVE_DEBOUNCE_MS then
         M.skill_last_save_ms = now;
         M.skill_dirty = false;
+        -- Piggy-back session snapshot onto this write when present.
+        M.persist_session();
+        M.session_dirty = false;
+        M.session_last_save_ms = now;
         settings.save();
     end
 end
@@ -194,6 +208,28 @@ end
 function M.flush_fishing_skill()
     if M.skill_dirty then
         M.persist_fishing_skill(true);
+    end
+end
+
+-- Call once per frame from d3d_present. Cheap no-op unless session is dirty
+-- and SESSION_AUTOSAVE_MS has elapsed since the last disk write.
+function M.tick_autosave()
+    if not M.session_dirty then
+        return;
+    end
+
+    local now = ashita.time.clock()['ms'];
+    if (now - (M.session_last_save_ms or 0)) < SESSION_AUTOSAVE_MS then
+        return;
+    end
+
+    M.persist_session();
+    if M.skill_dirty then
+        M.persist_fishing_skill(true);
+    else
+        settings.save();
+        M.session_dirty = false;
+        M.session_last_save_ms = now;
     end
 end
 
@@ -460,6 +496,7 @@ function M.add_fishing_frac(delta)
     M.session.fishing_frac = nv;
     M.session.skill_gain = round_tenth((M.session.skill_gain or 0) + delta);
     M.touch_activity();
+    mark_session_dirty();
     if M.session.skill_exact then
         M.persist_fishing_skill(false);
     end
@@ -474,6 +511,7 @@ function M.on_fishing_skill_tick(new_int)
     end
     -- Whole-level tick makes tenths exact at N.0; session gain stays at observed +0.x sum.
     M.session.skill_exact = true;
+    mark_session_dirty();
     M.persist_fishing_skill(true);
 end
 
@@ -493,6 +531,7 @@ function M.ensure_skill_start()
     else
         M.session.skill_start = skill_int;
     end
+    mark_session_dirty();
 end
 
 function M.get_skill_display(session, preview)
@@ -563,6 +602,8 @@ function M.reset_session()
     M.session.skill_start = nil;
     M.reset_rate_cache();
     M.persist_session();
+    M.session_dirty = false;
+    M.session_last_save_ms = ashita.time.clock()['ms'];
     settings.save();
 end
 
@@ -593,6 +634,7 @@ function M.record_cast()
     if M.session.first_cast_ms == 0 then
         M.session.first_cast_ms = M.session.last_activity_ms;
     end
+    mark_session_dirty();
 end
 
 function M.record_hook(hook_type)
@@ -609,6 +651,7 @@ function M.record_hook(hook_type)
     elseif hook_type == constants.MONSTER_HOOK_TYPE then
         M.session.monster_bites = (M.session.monster_bites or 0) + 1;
     end
+    mark_session_dirty();
 end
 
 local function add_reward(name)
@@ -646,18 +689,21 @@ function M.record_catch(item_name, hook_type, pricing)
 
     add_reward(item_name);
     M.session.current_hook = nil;
+    mark_session_dirty();
 end
 
 function M.record_lost()
     M.touch_activity();
     M.session.lost = M.session.lost + 1;
     M.session.current_hook = nil;
+    mark_session_dirty();
 end
 
 function M.record_broken()
     M.touch_activity();
     M.session.broken = M.session.broken + 1;
     M.session.current_hook = nil;
+    mark_session_dirty();
 end
 
 local function get_session(preview)

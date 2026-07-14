@@ -316,6 +316,8 @@ ashita.events.register('d3d_present', 'present_cb', function ()
 
     ui.present_frame_start();
 
+    tracker.tick_autosave();
+
     -- Config stays on Ashita's default ImGui font (Agave ~18px).
     config.render_editor();
 
