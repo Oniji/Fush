@@ -108,6 +108,9 @@ M.default_settings = T{
             bookend_size = T{ 10 },
             bar_border_thickness = T{ 0 },
             no_bookend_rounding = T{ 0 },
+            show_next_restock = T{ true },
+            show_vana_time = T{ true },
+            show_moon_phase = T{ true },
         },
         background_gradient_start = T{ '#01122b' },
         background_gradient_end = T{ '#061c39' },
@@ -651,6 +654,19 @@ local function render_appearance()
     render_module_style_section('Bite', M.settings.ui.bite);
     render_module_style_section('Session', M.settings.ui.tracker);
     render_module_style_section('Pool', M.settings.ui.pool);
+
+    if M.settings.ui.pool.show_next_restock == nil then
+        M.settings.ui.pool.show_next_restock = T{ true };
+    end
+    if M.settings.ui.pool.show_vana_time == nil then
+        M.settings.ui.pool.show_vana_time = T{ true };
+    end
+    if M.settings.ui.pool.show_moon_phase == nil then
+        M.settings.ui.pool.show_moon_phase = T{ true };
+    end
+    imgui.Checkbox('Show Next Restock', M.settings.ui.pool.show_next_restock);
+    imgui.Checkbox('Show Vana Time', M.settings.ui.pool.show_vana_time);
+    imgui.Checkbox('Show Moon Phase', M.settings.ui.pool.show_moon_phase);
 
     imgui.EndChild();
 

@@ -55,6 +55,56 @@ function M.format_time(timestamp)
     return string.format('%02d:%02d', timestamp.hour, timestamp.minute);
 end
 
+-- Lunar cycle is 84 Vana'diel days. Matches common Ashita / LSB moon math:
+-- (day + 26) % 84 → 0..42 waning Full→New, 42..84 waxing New→Full.
+function M.get_moon(timestamp)
+    local daysmod = ((timestamp.day or 0) + 26) % 84;
+    local percent;
+    local direction;
+
+    if daysmod == 0 or daysmod == 42 then
+        direction = 'neither';
+    elseif daysmod < 42 then
+        direction = 'waning';
+    else
+        direction = 'waxing';
+    end
+
+    if daysmod >= 42 then
+        percent = math.floor(100 * ((daysmod - 42) / 42) + 0.5);
+    else
+        percent = math.floor(100 * (1 - (daysmod / 42)) + 0.5);
+    end
+    if percent < 0 then percent = 0; end
+    if percent > 100 then percent = 100; end
+
+    local name;
+    if percent <= 5 then
+        name = 'New Moon';
+    elseif percent <= 25 then
+        name = (direction == 'waning') and 'Waning Crescent' or 'Waxing Crescent';
+    elseif percent <= 40 then
+        name = (direction == 'waning') and 'Last Quarter' or 'First Quarter';
+    elseif percent <= 90 then
+        name = (direction == 'waning') and 'Waning Gibbous' or 'Waxing Gibbous';
+    else
+        name = 'Full Moon';
+    end
+
+    return {
+        percent = percent,
+        direction = direction,
+        name = name,
+    };
+end
+
+function M.format_moon(moon)
+    if moon == nil then
+        moon = M.get_moon({ day = 0 });
+    end
+    return string.format('%s %d%%', moon.name, moon.percent);
+end
+
 function M.next_restock_hour(timestamp)
     local current = timestamp.hour + (timestamp.minute / 60);
 
