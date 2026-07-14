@@ -55,6 +55,7 @@ M.default_settings = T{
     session_snapshot = T{
         active = T{ false },
         lines_cast = T{ 0 },
+        bait_used = T{ 0 },
         hooks = T{ 0 },
         small_fish_bites = T{ 0 },
         large_fish_bites = T{ 0 },

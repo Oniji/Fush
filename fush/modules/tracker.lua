@@ -24,6 +24,7 @@ local RATE_UPDATE_MS = 30000;
 
 M.session = {
     lines_cast = 0,
+    bait_used = 0, -- incremented only when a bite occurs (fish/item/monster)
     hooks = 0, -- total bites (any hook type)
     small_fish_bites = 0,
     large_fish_bites = 0,
@@ -120,6 +121,7 @@ end
 
 local PREVIEW_SESSION = {
     lines_cast = 48,
+    bait_used = 42,
     hooks = 42,
     small_fish_bites = 18,
     large_fish_bites = 16,
@@ -241,6 +243,7 @@ local function ensure_session_snapshot()
         M.skill_settings.session_snapshot = T{
             active = T{ false },
             lines_cast = T{ 0 },
+            bait_used = T{ 0 },
             hooks = T{ 0 },
             small_fish_bites = T{ 0 },
             large_fish_bites = T{ 0 },
@@ -262,6 +265,7 @@ local function ensure_session_snapshot()
     local defaults = {
         active = false,
         lines_cast = 0,
+        bait_used = 0,
         hooks = 0,
         small_fish_bites = 0,
         large_fish_bites = 0,
@@ -314,6 +318,7 @@ function M.persist_session()
     if not session_has_data() then
         snap.active[1] = false;
         snap.lines_cast[1] = 0;
+        snap.bait_used[1] = 0;
         snap.hooks[1] = 0;
         snap.small_fish_bites[1] = 0;
         snap.large_fish_bites[1] = 0;
@@ -336,6 +341,7 @@ function M.persist_session()
     local now = ashita.time.clock()['ms'];
     snap.active[1] = true;
     snap.lines_cast[1] = s.lines_cast or 0;
+    snap.bait_used[1] = s.bait_used or 0;
     snap.hooks[1] = s.hooks or 0;
     snap.small_fish_bites[1] = s.small_fish_bites or 0;
     snap.large_fish_bites[1] = s.large_fish_bites or 0;
@@ -370,6 +376,12 @@ function M.restore_session()
 
     local now = ashita.time.clock()['ms'];
     M.session.lines_cast = snap.lines_cast[1] or 0;
+    -- Older snapshots lacked bait_used; approximate from total bites.
+    if snap.bait_used ~= nil then
+        M.session.bait_used = snap.bait_used[1] or 0;
+    else
+        M.session.bait_used = snap.hooks and snap.hooks[1] or 0;
+    end
     M.session.hooks = snap.hooks[1] or 0;
     M.session.small_fish_bites = snap.small_fish_bites[1] or 0;
     M.session.large_fish_bites = snap.large_fish_bites[1] or 0;
@@ -582,6 +594,7 @@ end
 
 function M.reset_session()
     M.session.lines_cast = 0;
+    M.session.bait_used = 0;
     M.session.hooks = 0;
     M.session.small_fish_bites = 0;
     M.session.large_fish_bites = 0;
@@ -640,6 +653,7 @@ end
 function M.record_hook(hook_type)
     M.touch_activity();
     M.session.hooks = M.session.hooks + 1;
+    M.session.bait_used = (M.session.bait_used or 0) + 1;
     M.session.current_hook = hook_type;
 
     if hook_type == 'Small Fish' then
@@ -735,7 +749,7 @@ end
 function M.get_net_gil(session, settings, pricing)
     local total = M.get_total_worth(session, pricing);
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
-        total = total - (session.lines_cast * settings.tracker.bait_cost[1]);
+        total = total - ((session.bait_used or 0) * settings.tracker.bait_cost[1]);
     end
     return total;
 end
@@ -850,11 +864,16 @@ function M.handle_text(e, bite, pricing)
         return;
     end
 
+    if string.contains(message, 'you didn\'t catch anything') then
+        M.touch_activity();
+        M.session.current_hook = nil;
+        return;
+    end
+
     if string.contains(message, 'you lost your catch')
         or string.contains(message, 'the fish got away')
         or string.contains(message, 'lack of skill')
         or string.contains(message, 'weren\'t able to catch anything')
-        or string.contains(message, 'you didn\'t catch anything')
         or string.contains(message, 'you give up') then
         M.record_lost();
         return;
@@ -905,8 +924,9 @@ function M.build_report_for(session, settings, pricing)
     end
 
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
-        local bait_spent = session.lines_cast * settings.tracker.bait_cost[1];
-        lines:append('Bait: x' .. format.format_int(session.lines_cast) .. ' (-' .. format.format_int(bait_spent) .. 'g)');
+        local bait_qty = session.bait_used or 0;
+        local bait_spent = bait_qty * settings.tracker.bait_cost[1];
+        lines:append('Bait: x' .. format.format_int(bait_qty) .. ' (-' .. format.format_int(bait_spent) .. 'g)');
     end
 
     lines:append('~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
@@ -975,11 +995,15 @@ local GIL_UNIT_GAP = 3;
 local function should_show_bait(settings, session)
     return settings.tracker.subtract_bait[1]
         and not settings.tracker.use_lure[1]
-        and session.lines_cast > 0;
+        and (session.bait_used or 0) > 0;
+end
+
+local function get_bait_qty(session)
+    return session.bait_used or 0;
 end
 
 local function get_bait_spent(settings, session)
-    return session.lines_cast * settings.tracker.bait_cost[1];
+    return get_bait_qty(session) * settings.tracker.bait_cost[1];
 end
 
 -- Content-measured width only — never GetWindowWidth(), or AlwaysAutoResize
@@ -1000,7 +1024,7 @@ local function compute_tracker_layout(session, pricing, settings, pad, net, gph,
     if should_show_bait(settings, session) then
         local spent = get_bait_spent(settings, session);
         max_num_w = math.max(max_num_w, text_w(format.format_int(-spent)));
-        max_count_w = math.max(max_count_w, text_w(tostring(session.lines_cast)));
+        max_count_w = math.max(max_count_w, text_w(tostring(get_bait_qty(session))));
     end
 
     local gil_col = max_num_w + GIL_UNIT_GAP + text_w(GIL_UNIT_RESERVE);
@@ -1165,7 +1189,7 @@ function M.render(settings, pricing, preview)
             end
 
             if show_bait then
-                local bait_qty = session.lines_cast;
+                local bait_qty = get_bait_qty(session);
                 local bait_spent = get_bait_spent(settings, session);
                 draw_catch_row('bait', bait_qty, -bait_spent, theme.colors.text_light, pad, layout);
             end
