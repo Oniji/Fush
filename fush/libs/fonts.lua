@@ -11,14 +11,15 @@ local imgui = require('imgui');
 local M = {};
 
 -- Friendly label -> filename under assets/fonts/
--- "Default (Agave)" keeps Ashita's current ImGui font (no PushFont).
+-- "Agave" keeps Ashita's current ImGui font (no PushFont).
+-- "Tahoma Bold (Default)" is the addon default for overlays.
 M.OPTIONS = T{
-    { label = 'Default (Agave)', file = nil },
-    { label = 'Tahoma Bold',     file = 'tahomabd.ttf' },
-    { label = 'Tahoma',          file = 'tahoma.ttf' },
-    { label = 'Segoe UI',        file = 'segoeui.ttf' },
-    { label = 'Consolas',        file = 'consola.ttf' },
-    { label = 'Verdana',         file = 'verdana.ttf' },
+    { label = 'Tahoma Bold (Default)', file = 'tahomabd.ttf' },
+    { label = 'Agave',                 file = nil },
+    { label = 'Tahoma',                file = 'tahoma.ttf' },
+    { label = 'Segoe UI',              file = 'segoeui.ttf' },
+    { label = 'Consolas',              file = 'consola.ttf' },
+    { label = 'Verdana',               file = 'verdana.ttf' },
 };
 
 local cache = T{}; -- label -> ImFont* or false
@@ -61,6 +62,12 @@ function M.get_scale(settings)
 end
 
 local function find_option(label)
+    -- Migrate older saved labels.
+    if label == 'Tahoma Bold' then
+        label = 'Tahoma Bold (Default)';
+    elseif label == 'Default (Agave)' then
+        label = 'Agave';
+    end
     for _, opt in ipairs(M.OPTIONS) do
         if opt.label == label then
             return opt;
@@ -148,7 +155,7 @@ function M.push(settings)
         return;
     end
 
-    local label = 'Tahoma Bold';
+    local label = 'Tahoma Bold (Default)';
     if settings ~= nil and settings.ui ~= nil and settings.ui.font_family ~= nil then
         label = settings.ui.font_family[1] or label;
     end

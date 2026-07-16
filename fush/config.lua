@@ -75,7 +75,7 @@ M.default_settings = T{
 
     ui = T{
         background_theme = T{ 'OceanBlue' },
-        font_family = T{ 'Tahoma Bold' },
+        font_family = T{ 'Tahoma Bold (Default)' },
         bite = T{
             scale = T{ 1.0 },
             padding = T{ 8 },
@@ -415,7 +415,7 @@ function M.ensure_ui_settings()
     ensure_ui_section('pool');
 
     if M.settings.ui.font_family == nil then
-        M.settings.ui.font_family = T{ 'Tahoma Bold' };
+        M.settings.ui.font_family = T{ 'Tahoma Bold (Default)' };
     end
 
     for _, map in ipairs(legacy_map) do
@@ -612,7 +612,7 @@ local function render_general()
     end
 
     if M.settings.ui.font_family == nil then
-        M.settings.ui.font_family = T{ 'Tahoma Bold' };
+        M.settings.ui.font_family = T{ 'Tahoma Bold (Default)' };
     end
     fonts.render_combo(M.settings.ui.font_family);
 
@@ -707,11 +707,12 @@ end
 
 
 local function do_reset_defaults()
+    -- Ashita settings.reset() only rewrites the active character's file.
     settings.reset();
     M.ensure_ui_settings();
     ui.bind(M.settings, M.editor_open);
     M.update_pricing();
-    print(chat.header('fush'):append(chat.message('Settings reset.')));
+    print(chat.header('fush'):append(chat.message('Settings reset for this character.')));
 end
 
 local function render_positions()
@@ -823,7 +824,7 @@ function M.render_editor()
 
             bite.reset();
 
-            print(chat.header('fush'):append(chat.message('Session cleared.')));
+            print(chat.header('fush'):append(chat.message('Session cleared for this character.')));
 
         end
 
@@ -920,7 +921,10 @@ settings.register('settings', 'settings_update', function (s)
     ui.bind(M.settings, M.editor_open);
 
     local tracker = require('modules.tracker');
+    -- Ashita swaps the settings table per character; rebind live session/skill
+    -- from this character only (clears any previous character's in-memory state).
     tracker.bind_skill_settings(M.settings);
+    bite.reset();
 
     M.update_pricing();
 

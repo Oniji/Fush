@@ -17,7 +17,7 @@ Fush is a separate addon and is not affiliated with or endorsed by the XIUI proj
 Optional overlay fonts (Tahoma, Tahoma Bold, Segoe UI, Consolas, Verdana) are
 Microsoft Windows fonts copied for local/offline use with the addon. They are
 not redistributed as part of Fush's open-source license grant — do not ship them
-publicly unless you have rights to do so. The Default (Agave) option uses
+publicly unless you have rights to do so. The Agave option uses
 Ashita's built-in ImGui font and requires no bundled files.
 
 ## Lua-Bitmap (via XIUI)

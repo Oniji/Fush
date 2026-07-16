@@ -60,6 +60,9 @@ M.session_last_save_ms = 0;
 local SESSION_AUTOSAVE_MS = 10000;
 
 local function mark_session_dirty()
+    -- Keep the bound character settings table current so Ashita's automatic
+    -- per-character save on login/logout has an up-to-date snapshot.
+    M.persist_session();
     M.session_dirty = true;
 end
 
@@ -150,9 +153,45 @@ function M.reset_rate_cache()
     M.rate_cache.last_update_ms = 0;
 end
 
+-- Wipe live session/skill runtime state without writing settings.
+-- Used when binding a different character's settings table.
+function M.clear_session_memory()
+    M.session.lines_cast = 0;
+    M.session.bait_used = 0;
+    M.session.hooks = 0;
+    M.session.small_fish_bites = 0;
+    M.session.large_fish_bites = 0;
+    M.session.item_bites = 0;
+    M.session.monster_bites = 0;
+    M.session.fish_caught = 0;
+    M.session.items_caught = 0;
+    M.session.monsters_caught = 0;
+    M.session.lost = 0;
+    M.session.broken = 0;
+    M.session.first_cast_ms = 0;
+    M.session.last_activity_ms = 0;
+    M.session.current_hook = nil;
+    M.session.rewards = T{};
+    M.session.skill_gain = 0;
+    M.session.skill_start = nil;
+    M.session.fishing_frac = 0;
+    M.session.last_skill_int = nil;
+    M.session.skill_exact = false;
+    M.session_dirty = false;
+    M.skill_dirty = false;
+    M.reset_rate_cache();
+end
+
+-- Rebind to the active character settings (Ashita switches tables on login).
+-- Always clears in-memory session first so another character's data cannot leak.
 function M.bind_skill_settings(settings_ref)
     M.skill_settings = settings_ref;
+    M.clear_session_memory();
+    -- Restore session before skill: skill restore may flush settings to disk
+    -- and must not overwrite this character's snapshot with an empty session.
+    M.restore_session();
     M.restore_fishing_skill();
+    M.refresh_player_name();
 end
 
 function M.get_fishing_skill_int()
@@ -174,6 +213,29 @@ function M.get_fishing_skill_int()
     return tonumber(skill);
 end
 
+-- During zone/load the craft API often reports 0. Treat that as unavailable
+-- whenever we already know a non-zero skill (stored or last observed).
+local function api_skill_usable(skill_int)
+    if skill_int == nil then
+        return false;
+    end
+    if skill_int > 0 then
+        return true;
+    end
+    -- Genuine 0 is only trusted when we have no prior non-zero knowledge.
+    local last = M.session.last_skill_int;
+    if last ~= nil and last > 0 then
+        return false;
+    end
+    if M.skill_settings ~= nil and M.skill_settings.fishing_skill ~= nil then
+        local saved = tonumber(M.skill_settings.fishing_skill.level and M.skill_settings.fishing_skill.level[1]) or 0;
+        if saved > 0 then
+            return false;
+        end
+    end
+    return true;
+end
+
 local function round_tenth(v)
     return math.floor(v * 10 + 0.5) / 10;
 end
@@ -184,15 +246,30 @@ function M.persist_fishing_skill(force)
     end
 
     local skill_int = M.get_fishing_skill_int();
-    if skill_int == nil then
+    local api_ok = api_skill_usable(skill_int);
+    local base = nil;
+    if M.session.skill_exact then
+        base = api_ok and skill_int or M.session.last_skill_int;
+    else
+        if not api_ok then
+            return;
+        end
+        base = skill_int;
+    end
+    if base == nil then
         return;
     end
 
-    local frac = math.min(0.9, M.session.fishing_frac or 0);
-    local level = skill_int + frac;
+    local frac = M.session.skill_exact and math.min(0.9, M.session.fishing_frac or 0) or 0;
+    local level = base + frac;
     local store = M.skill_settings.fishing_skill;
     store.exact[1] = M.session.skill_exact == true;
     store.level[1] = round_tenth(level);
+    if api_ok then
+        M.session.last_skill_int = skill_int;
+    elseif M.session.last_skill_int == nil then
+        M.session.last_skill_int = base;
+    end
     M.skill_dirty = true;
 
     local now = ashita.time.clock()['ms'];
@@ -437,61 +514,110 @@ end
 
 function M.restore_fishing_skill()
     local skill_int = M.get_fishing_skill_int();
-    M.session.last_skill_int = skill_int;
-    M.session.fishing_frac = 0;
-    M.session.skill_exact = false;
+    local api_ok = api_skill_usable(skill_int);
 
     if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
+        if api_ok then
+            M.session.last_skill_int = skill_int;
+            M.session.skill_exact = false;
+            M.session.fishing_frac = 0;
+        end
         return;
     end
 
     local store = M.skill_settings.fishing_skill;
     local exact = store.exact and store.exact[1];
     local saved = tonumber(store.level and store.level[1]) or 0;
-    if not exact or saved <= 0 or skill_int == nil then
+
+    -- Stored exact skill is the source of truth until API/chat contradicts it.
+    if exact and saved > 0 then
+        local saved_int = math.floor(saved);
+        local saved_frac = round_tenth(saved - saved_int);
+
+        if not api_ok then
+            -- Zone/load: keep decimals; ignore unavailable API (often 0).
+            M.session.skill_exact = true;
+            M.session.fishing_frac = math.min(0.9, saved_frac);
+            M.session.last_skill_int = saved_int;
+            return;
+        end
+
+        if skill_int == saved_int then
+            M.session.skill_exact = true;
+            M.session.fishing_frac = math.min(0.9, saved_frac);
+            M.session.last_skill_int = skill_int;
+            return;
+        end
+
+        -- Non-zero API whole level differs from stored (e.g. 89 vs 88.1).
+        -- Trust API integer and hide decimals until the next whole-rank tick.
+        M.session.skill_exact = false;
+        M.session.fishing_frac = 0;
+        M.session.last_skill_int = skill_int;
+        store.exact[1] = false;
+        store.level[1] = skill_int;
+        M.skill_dirty = true;
+        M.persist_fishing_skill(true);
         return;
     end
 
-    local saved_int = math.floor(saved);
-    local saved_frac = round_tenth(saved - saved_int);
-    -- Only trust the decimal if the whole level still matches memory.
-    if saved_int == skill_int then
-        M.session.skill_exact = true;
-        M.session.fishing_frac = math.min(0.9, saved_frac);
-    elseif saved_int < skill_int then
-        -- Leveled offline / without us; integer is known but tenths are not.
+    -- No exact store yet: only adopt a usable API integer.
+    if api_ok then
         M.session.skill_exact = false;
         M.session.fishing_frac = 0;
+        M.session.last_skill_int = skill_int;
     end
 end
 
 -- Memory only exposes whole levels; fractional tenths come from 0x029 / chat.
+-- Whole-rank chat/packets are what make tenths "exact"; API alone never does.
 function M.get_fishing_skill()
     local skill_int = M.get_fishing_skill_int();
-    if skill_int == nil then
-        return nil;
-    end
+    local api_ok = api_skill_usable(skill_int);
 
-    -- Memory may not be ready at load; retry restore once we can read skill.
+    -- Retry restore once settings say we have exact skill but runtime lost it
+    -- (e.g. first frames after load before memory is ready).
     if not M.session.skill_exact
         and M.skill_settings
         and M.skill_settings.fishing_skill
         and M.skill_settings.fishing_skill.exact
         and M.skill_settings.fishing_skill.exact[1] then
         M.restore_fishing_skill();
-        skill_int = M.get_fishing_skill_int() or skill_int;
     end
 
-    -- If memory ticked up without our packet handler, tenths become known at N.0.
-    if M.session.last_skill_int ~= nil and skill_int > M.session.last_skill_int then
-        M.session.fishing_frac = 0;
-        M.session.skill_exact = true;
-        M.persist_fishing_skill(true);
+    if M.session.skill_exact then
+        local base = M.session.last_skill_int;
+        if api_ok then
+            if base ~= nil and skill_int ~= base then
+                -- API whole level contradicts stored exact skill.
+                M.session.skill_exact = false;
+                M.session.fishing_frac = 0;
+                M.session.last_skill_int = skill_int;
+                if M.skill_settings ~= nil and M.skill_settings.fishing_skill ~= nil then
+                    M.skill_settings.fishing_skill.exact[1] = false;
+                    M.skill_settings.fishing_skill.level[1] = skill_int;
+                end
+                M.persist_fishing_skill(true);
+                return skill_int;
+            end
+            M.session.last_skill_int = skill_int;
+            base = skill_int;
+        end
+        if base == nil then
+            return nil;
+        end
+        return base + math.min(0.9, M.session.fishing_frac or 0);
     end
-    M.session.last_skill_int = skill_int;
 
-    local frac = math.min(0.9, M.session.fishing_frac or 0);
-    return skill_int + frac;
+    -- Not exact: show whole API integer when usable, else last known int.
+    if api_ok then
+        M.session.last_skill_int = skill_int;
+        return skill_int;
+    end
+    if M.session.last_skill_int ~= nil then
+        return M.session.last_skill_int;
+    end
+    return nil;
 end
 
 function M.add_fishing_frac(delta)
@@ -515,13 +641,17 @@ function M.add_fishing_frac(delta)
 end
 
 function M.on_fishing_skill_tick(new_int)
-    M.session.fishing_frac = 0;
-    if new_int ~= nil then
-        M.session.last_skill_int = new_int;
-    else
-        M.session.last_skill_int = M.get_fishing_skill_int();
+    -- Whole-level tick from chat/packet is authoritative for exact tenths at N.0.
+    local tick_int = tonumber(new_int);
+    if tick_int == nil then
+        tick_int = M.get_fishing_skill_int();
     end
-    -- Whole-level tick makes tenths exact at N.0; session gain stays at observed +0.x sum.
+    if tick_int == nil or tick_int <= 0 then
+        return;
+    end
+
+    M.session.fishing_frac = 0;
+    M.session.last_skill_int = tick_int;
     M.session.skill_exact = true;
     mark_session_dirty();
     M.persist_fishing_skill(true);
@@ -593,27 +723,11 @@ function M.format_skill_value(current, gain, exact)
 end
 
 function M.reset_session()
-    M.session.lines_cast = 0;
-    M.session.bait_used = 0;
-    M.session.hooks = 0;
-    M.session.small_fish_bites = 0;
-    M.session.large_fish_bites = 0;
-    M.session.item_bites = 0;
-    M.session.monster_bites = 0;
-    M.session.fish_caught = 0;
-    M.session.items_caught = 0;
-    M.session.monsters_caught = 0;
-    M.session.lost = 0;
-    M.session.broken = 0;
-    M.session.first_cast_ms = 0;
-    M.session.last_activity_ms = 0;
-    M.session.current_hook = nil;
-    M.session.rewards = T{};
-    M.session.skill_gain = 0;
+    -- Only clears/saves the currently bound character's settings.
+    M.clear_session_memory();
     -- Keep persisted exact skill across session clears.
     M.restore_fishing_skill();
     M.session.skill_start = nil;
-    M.reset_rate_cache();
     M.persist_session();
     M.session_dirty = false;
     M.session_last_save_ms = ashita.time.clock()['ms'];

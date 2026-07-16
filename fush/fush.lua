@@ -20,7 +20,7 @@ addon.name = 'fush';
 
 addon.author = 'Saraji';
 
-addon.version = '0.1.0';
+addon.version = '0.2.0';
 
 addon.desc = 'Fishing bite tracker, session stats, and pool resupply bar. UI adapted from XIUI (GPLv3).';
 
@@ -115,6 +115,7 @@ ashita.events.register('load', 'load_cb', function ()
     config.update_pricing();
 
     tracker.refresh_player_name();
+    -- Bind restores this character's session/skill from settings.
     tracker.bind_skill_settings(config.settings);
     fonts.prewarm();
 
@@ -123,10 +124,6 @@ ashita.events.register('load', 'load_cb', function ()
         tracker.reset_session();
 
         bite.reset();
-
-    else
-
-        tracker.restore_session();
 
     end
 
@@ -222,7 +219,7 @@ ashita.events.register('command', 'command_cb', function (e)
 
         bite.reset();
 
-        print(chat.header(addon.name):append(chat.message('Session cleared.')));
+        print(chat.header(addon.name):append(chat.message('Session cleared for this character.')));
 
         return;
 
