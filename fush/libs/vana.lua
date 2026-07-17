@@ -140,13 +140,54 @@ function M.units_until_restock(timestamp)
     return target_units - current_units;
 end
 
-function M.format_restock_countdown(timestamp)
-    local units = M.units_until_restock(timestamp);
-    -- Vana clock unit maps to ~1 real second.
-    local total_seconds = math.max(0, math.floor(units));
+function M.format_units_countdown(units)
+    -- One Vana clock unit maps to ~1 real second.
+    local total_seconds = math.max(0, math.floor(units or 0));
     local minutes = math.floor(total_seconds / 60);
     local seconds = total_seconds % 60;
     return string.format('%02d:%02d', minutes, seconds);
+end
+
+function M.format_restock_countdown(timestamp)
+    return M.format_units_countdown(M.units_until_restock(timestamp));
+end
+
+-- Earth-seconds countdown until the next listed Vana'diel HH:MM (same day or wrap).
+-- departures: list of { hour = H, minute = M } (or { H, M }).
+function M.next_departure_units(timestamp, departures)
+    if departures == nil or #departures == 0 then
+        return nil;
+    end
+
+    local current = timestamp.day_units or 0;
+    local best = nil;
+    for _, dep in ipairs(departures) do
+        local hour = dep.hour;
+        local minute = dep.minute;
+        if hour == nil then
+            hour = dep[1];
+            minute = dep[2];
+        end
+        hour = tonumber(hour) or 0;
+        minute = tonumber(minute) or 0;
+        local target = hour * UNITS_PER_HOUR + minute * UNITS_PER_MINUTE;
+        if target <= current then
+            target = target + UNITS_PER_DAY;
+        end
+        local until_units = target - current;
+        if best == nil or until_units < best then
+            best = until_units;
+        end
+    end
+    return best;
+end
+
+function M.format_next_departure(timestamp, departures)
+    local units = M.next_departure_units(timestamp, departures);
+    if units == nil then
+        return '--:--';
+    end
+    return M.format_units_countdown(units);
 end
 
 function M.hour_to_progress(hour)

@@ -4,7 +4,7 @@
 
 *
 
-* Bite/feeling overlay, session tracker, and pool resupply bar.
+* Bite/feeling overlay, session tracker, pool resupply bar, and ship schedules.
 
 *
 
@@ -20,9 +20,9 @@ addon.name = 'fush';
 
 addon.author = 'Saraji';
 
-addon.version = '0.2.0';
+addon.version = '0.3.0';
 
-addon.desc = 'Fishing bite tracker, session stats, and pool resupply bar. UI adapted from XIUI (GPLv3).';
+addon.desc = 'Fishing bite tracker, session stats, pool resupply, and ship schedules. UI adapted from XIUI (GPLv3).';
 
 addon.link = 'https://github.com/casme/Fush';
 
@@ -49,6 +49,8 @@ local bite = require('modules.bite');
 local tracker = require('modules.tracker');
 
 local pool = require('modules.pool');
+
+local ship = require('modules.ship');
 
 
 
@@ -79,6 +81,8 @@ local function print_help(is_error)
         { '/fush show', 'Show all panels.' },
 
         { '/fush hide', 'Hide all panels.' },
+
+        { '/fush ship', 'Toggle the Ship Tracker panel.' },
 
         { '/fush save', 'Save settings.' },
 
@@ -235,6 +239,8 @@ ashita.events.register('command', 'command_cb', function (e)
 
         config.settings.pool.visible[1] = true;
 
+        config.settings.ship.visible[1] = true;
+
         tracker.touch_activity();
 
         return;
@@ -250,6 +256,22 @@ ashita.events.register('command', 'command_cb', function (e)
         config.settings.tracker.visible[1] = false;
 
         config.settings.pool.visible[1] = false;
+
+        config.settings.ship.visible[1] = false;
+
+        return;
+
+    end
+
+
+
+    if args[2]:any('ship') then
+
+        config.settings.ship.visible[1] = not config.settings.ship.visible[1];
+
+        local state = config.settings.ship.visible[1] and 'shown' or 'hidden';
+
+        print(chat.header(addon.name):append(chat.message('Ship Tracker ' .. state .. '.')));
 
         return;
 
@@ -325,6 +347,8 @@ ashita.events.register('d3d_present', 'present_cb', function ()
     tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
 
     pool.render(config.settings);
+
+    ship.render(config.settings);
 
     fonts.pop();
 

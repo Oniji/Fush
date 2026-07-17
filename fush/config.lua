@@ -113,6 +113,16 @@ M.default_settings = T{
             show_vana_time = T{ true },
             show_moon_phase = T{ true },
         },
+        ship = T{
+            scale = T{ 1.0 },
+            padding = T{ 6 },
+            bg_scale = T{ 1.0 },
+            border_scale = T{ 1.0 },
+            background_opacity = T{ 0.60 },
+            border_opacity = T{ 0.9 },
+            border_thickness = T{ 0 },
+            panel_rounding = T{ 6 },
+        },
         background_gradient_start = T{ '#01122b' },
         background_gradient_end = T{ '#061c39' },
         bookend_gradient_start = T{ '#576C92' },
@@ -351,6 +361,18 @@ M.default_settings = T{
 
     },
 
+    ship = T{
+
+        visible = T{ true },
+
+        font_scale = T{ 1.0 },
+
+        x = T{ 20 },
+
+        y = T{ 620 },
+
+    },
+
 };
 
 
@@ -413,6 +435,7 @@ function M.ensure_ui_settings()
     ensure_ui_section('bite');
     ensure_ui_section('tracker');
     ensure_ui_section('pool');
+    ensure_ui_section('ship');
 
     if M.settings.ui.font_family == nil then
         M.settings.ui.font_family = T{ 'Tahoma Bold (Default)' };
@@ -423,6 +446,7 @@ function M.ensure_ui_settings()
             if M.settings.ui.bite[map.new] == nil then M.settings.ui.bite[map.new] = M.settings.ui[map.old]; end
             if M.settings.ui.tracker[map.new] == nil then M.settings.ui.tracker[map.new] = M.settings.ui[map.old]; end
             if M.settings.ui.pool[map.new] == nil then M.settings.ui.pool[map.new] = M.settings.ui[map.old]; end
+            if M.settings.ui.ship[map.new] == nil then M.settings.ui.ship[map.new] = M.settings.ui[map.old]; end
         end
     end
 
@@ -471,8 +495,13 @@ function M.ensure_ui_settings()
     lock(M.settings.ui.pool, 'bar_border_thickness', 0);
     lock(M.settings.ui.pool, 'no_bookend_rounding', 0);
 
+    lock(M.settings.ui.ship, 'padding', 6);
+    lock(M.settings.ui.ship, 'bg_scale', 1.0);
+    lock(M.settings.ui.ship, 'border_scale', 1.0);
+    lock(M.settings.ui.ship, 'panel_rounding', 6);
+
     for key, value in pairs(defaults) do
-        if type(value) ~= 'table' or (key ~= 'bite' and key ~= 'tracker' and key ~= 'pool') then
+        if type(value) ~= 'table' or (key ~= 'bite' and key ~= 'tracker' and key ~= 'pool' and key ~= 'ship') then
             if M.settings.ui[key] == nil then
                 M.settings.ui[key] = value;
             end
@@ -500,6 +529,7 @@ M.ensure_ui_settings();
 ensure_module_settings('bite');
 ensure_module_settings('tracker');
 ensure_module_settings('pool');
+ensure_module_settings('ship');
 
 if M.settings.fishing_skill == nil then
     M.settings.fishing_skill = T{
@@ -585,13 +615,15 @@ local function render_general()
 
     imgui.Text('Modules');
 
-    imgui.BeginChild('fush_modules', { 0, 130 }, true);
+    imgui.BeginChild('fush_modules', { 0, 155 }, true);
 
     imgui.Checkbox('Bite Tracker', M.settings.bite.visible);
 
     imgui.Checkbox('Session Tracker', M.settings.tracker.visible);
 
     imgui.Checkbox('Pool Resupply Bar', M.settings.pool.visible);
+
+    imgui.Checkbox('Ship Tracker', M.settings.ship.visible);
 
     imgui.Checkbox('Reset Session On Load', M.settings.reset_on_load);
 
@@ -655,6 +687,7 @@ local function render_appearance()
     render_module_style_section('Bite', M.settings.ui.bite);
     render_module_style_section('Session', M.settings.ui.tracker);
     render_module_style_section('Pool', M.settings.ui.pool);
+    render_module_style_section('Ship', M.settings.ui.ship);
 
     if M.settings.ui.pool.show_next_restock == nil then
         M.settings.ui.pool.show_next_restock = T{ true };
@@ -717,7 +750,7 @@ end
 
 local function render_positions()
 
-    imgui.BeginChild('fush_positions', { 0, 280 }, true);
+    imgui.BeginChild('fush_positions', { 0, 320 }, true);
 
     local bite_pos = T{ M.settings.bite.x[1], M.settings.bite.y[1] };
     if imgui.InputInt2('Bite Seam Position', bite_pos) then
@@ -740,6 +773,12 @@ local function render_positions()
 
     imgui.InputInt('Pool Bar Width', M.settings.pool.width);
     imgui.InputInt('Pool Bar Height', M.settings.pool.height);
+
+    local ship_pos = T{ M.settings.ship.x[1], M.settings.ship.y[1] };
+    if imgui.InputInt2('Ship Tracker Position', ship_pos) then
+        M.settings.ship.x[1] = ship_pos[1];
+        M.settings.ship.y[1] = ship_pos[2];
+    end
 
     imgui.Separator();
     imgui.Spacing();
@@ -910,6 +949,7 @@ settings.register('settings', 'settings_update', function (s)
     ensure_module_settings('bite');
     ensure_module_settings('tracker');
     ensure_module_settings('pool');
+    ensure_module_settings('ship');
 
     if M.settings.fishing_skill == nil then
         M.settings.fishing_skill = T{

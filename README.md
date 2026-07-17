@@ -1,6 +1,6 @@
 # Fush
 
-Ashita v4 fishing companion for [HorizonXI](https://horizonxi.com/). Tracks bites and feelings, session stats and gil, and (on HorizonXI) fishing pool restocks on the Vanadiel clock.
+Ashita v4 fishing companion for [HorizonXI](https://horizonxi.com/). Tracks bites and feelings, session stats and gil, fishing pool restocks on the Vanadiel clock, and boat departure countdowns.
 
 UI rendering adapted from [XIUI](https://github.com/tirem/XIUI) (GPLv3).
 
@@ -35,6 +35,19 @@ Vanadiel-day progress bar with notches at HorizonXI pool restock hours (`00:00`,
 > **HorizonXI only.** Restock hours and pool timing are specific to HorizonXI and will not match retail or other private servers.
 
 <img width="421" height="97" alt="image" src="https://github.com/user-attachments/assets/f9687272-4c76-4c80-bbe3-a18e8ab448ce" />
+
+### Ship tracker
+
+Boat departure panel with real-world countdowns (`mm:ss`) for:
+
+- Selbina <-> Mhaura
+- Mhaura -> Whitegate
+- Bibiki Bay -> Tours (next of Maliyakaleya Reef / Dhalmel Rock)
+- Bibiki Bay <-> Purgonorgo Isle
+
+When a route has multiple ships, one row is shown using the soonest departure. Schedules follow [Horizogenes](https://horizonffxi.wiki/Horizogenes) / HorizonXI wiki boat times.
+
+> **HorizonXI only.** Ferry schedules may differ on other servers.
 
 ### Config UI
 
@@ -74,6 +87,7 @@ Optional: add `fush` to your Ashita bootstrap so it loads automatically on login
 | `/fush clear` | Clear the current session |
 | `/fush show` | Show all panels |
 | `/fush hide` | Hide all panels |
+| `/fush ship` | Toggle the Ship Tracker panel |
 | `/fush save` | Save settings |
 | `/fush reload` | Reload settings from disk |
 
@@ -81,7 +95,7 @@ Optional: add `fush` to your Ashita bootstrap so it loads automatically on login
 
 ## Notes
 
-- **Pool tracker** is intended for **HorizonXI only**. Disable it in General → Modules on other servers.
+- **Pool tracker** and **Ship tracker** are intended for **HorizonXI only**. Disable them in General → Modules on other servers.
 - **Default item prices** are **LandSandBoat (LSB) vendor prices**. HorizonXI values may differ — edit them under Tracker → Item Prices (`name:price`, one per line). Only items in that list are counted toward gil and the catch list.
 - Prices are matched case-insensitively against catch names from the chat log.
 - The bite overlay hides when you zone or stop fishing.

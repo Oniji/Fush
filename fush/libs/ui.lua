@@ -61,6 +61,7 @@ local MODULE_DEFAULTS = {
     bite = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.8, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
     tracker = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
     pool = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6, show_bookends = false, bookend_size = 10, bar_border_thickness = 0, no_bookend_rounding = 0 },
+    ship = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
 };
 
 local function module_settings(settings, module_name)
@@ -130,6 +131,7 @@ M.panel_open = {
     bite = { true },
     tracker = { true },
     pool = { true },
+    ship = { true },
 };
 
 function M.get_panel_flags()
