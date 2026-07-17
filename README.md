@@ -38,12 +38,9 @@ Vanadiel-day progress bar with notches at HorizonXI pool restock hours (`00:00`,
 
 ### Ship tracker
 
-Boat departure panel with real-world countdowns (`mm:ss`) for:
+Boat departure panel with real-world countdowns (`mm:ss`).
 
-- Selbina <-> Mhaura
-- Mhaura -> Whitegate
-- Bibiki Bay -> Tours (next of Maliyakaleya Reef / Dhalmel Rock)
-- Bibiki Bay <-> Purgonorgo Isle
+<img width="242" height="124" alt="image" src="https://github.com/user-attachments/assets/71773461-d732-46c6-9bc2-98da690f998c" />
 
 When a route has multiple ships, one row is shown using the soonest departure. Schedules follow [Horizogenes](https://horizonffxi.wiki/Horizogenes) / HorizonXI wiki boat times.
 
