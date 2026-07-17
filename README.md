@@ -1,4 +1,4 @@
-# Fush
+<img width="1536" height="1024" alt="fush-banner" src="https://github.com/user-attachments/assets/aca359f1-66a4-4300-8903-5d79351d3b0a" />
 
 Ashita v4 fishing companion for [HorizonXI](https://horizonxi.com/). Tracks bites and feelings, session stats and gil, fishing pool restocks on the Vanadiel clock, and boat departure countdowns.
 
@@ -38,16 +38,14 @@ Vanadiel-day progress bar with notches at HorizonXI pool restock hours (`00:00`,
 
 ### Ship tracker
 
-Boat departure panel with real-world countdowns (`mm:ss`) for:
+Boat departure panel with real-world countdowns (`mm:ss`).
 
-- Selbina <-> Mhaura
-- Mhaura -> Whitegate
-- Bibiki Bay -> Tours (next of Maliyakaleya Reef / Dhalmel Rock)
-- Bibiki Bay <-> Purgonorgo Isle
+<img width="242" height="124" alt="image" src="https://github.com/user-attachments/assets/71773461-d732-46c6-9bc2-98da690f998c" />
 
 When a route has multiple ships, one row is shown using the soonest departure. Schedules follow [Horizogenes](https://horizonffxi.wiki/Horizogenes) / HorizonXI wiki boat times.
 
 > **HorizonXI only.** Ferry schedules may differ on other servers.
+> **Whitegate route** automatically becomes active on 7th August 2026 on HorizonXI release of TOAU (Friday).
 
 ### Config UI
 
