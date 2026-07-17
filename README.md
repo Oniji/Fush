@@ -45,6 +45,7 @@ Boat departure panel with real-world countdowns (`mm:ss`).
 When a route has multiple ships, one row is shown using the soonest departure. Schedules follow [Horizogenes](https://horizonffxi.wiki/Horizogenes) / HorizonXI wiki boat times.
 
 > **HorizonXI only.** Ferry schedules may differ on other servers.
+> Whitegate route becomes active on 7th August 2026 on HorizonXI release of TOAU.
 
 ### Config UI
 
