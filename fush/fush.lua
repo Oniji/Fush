@@ -44,6 +44,8 @@ local ui = require('libs.ui');
 
 local fonts = require('libs.fonts');
 
+local game = require('libs.game');
+
 local bite = require('modules.bite');
 
 local tracker = require('modules.tracker');
@@ -337,7 +339,9 @@ ashita.events.register('d3d_present', 'present_cb', function ()
 
     fonts.push(config.settings);
 
-    if config.panels_are_shown() then
+    -- Hide overlays on title / character select. LoginStatus 2 stays true
+    -- during zone transitions even when the player entity is briefly nil.
+    if config.panels_are_shown() and game.is_logged_in() then
 
         bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
 
