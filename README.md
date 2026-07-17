@@ -1,4 +1,4 @@
-# Fush
+<img width="1536" height="1024" alt="fush-banner" src="https://github.com/user-attachments/assets/aca359f1-66a4-4300-8903-5d79351d3b0a" />
 
 Ashita v4 fishing companion for [HorizonXI](https://horizonxi.com/). Tracks bites and feelings, session stats and gil, fishing pool restocks on the Vanadiel clock, and boat departure countdowns.
 
