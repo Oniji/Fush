@@ -78,11 +78,11 @@ local function print_help(is_error)
 
         { '/fush clear', 'Clear the current session.' },
 
-        { '/fush show', 'Show all panels.' },
+        { '/fush show', 'Show enabled panels.' },
 
         { '/fush hide', 'Hide all panels.' },
 
-        { '/fush ship', 'Toggle the Ship Tracker panel.' },
+        { '/fush ship', 'Enable or disable the Ship Tracker.' },
 
         { '/fush save', 'Save settings.' },
 
@@ -233,13 +233,10 @@ ashita.events.register('command', 'command_cb', function (e)
 
     if args[2]:any('show') then
 
-        config.settings.bite.visible[1] = true;
-
-        config.settings.tracker.visible[1] = true;
-
-        config.settings.pool.visible[1] = true;
-
-        config.settings.ship.visible[1] = true;
+        if config.settings.panels_hidden == nil then
+            config.settings.panels_hidden = T{ false };
+        end
+        config.settings.panels_hidden[1] = false;
 
         tracker.touch_activity();
 
@@ -251,13 +248,10 @@ ashita.events.register('command', 'command_cb', function (e)
 
     if args[2]:any('hide') then
 
-        config.settings.bite.visible[1] = false;
-
-        config.settings.tracker.visible[1] = false;
-
-        config.settings.pool.visible[1] = false;
-
-        config.settings.ship.visible[1] = false;
+        if config.settings.panels_hidden == nil then
+            config.settings.panels_hidden = T{ false };
+        end
+        config.settings.panels_hidden[1] = true;
 
         return;
 
@@ -267,9 +261,10 @@ ashita.events.register('command', 'command_cb', function (e)
 
     if args[2]:any('ship') then
 
+        -- Same as General → Ship Tracker checkbox (enable/disable), not show/hide.
         config.settings.ship.visible[1] = not config.settings.ship.visible[1];
 
-        local state = config.settings.ship.visible[1] and 'shown' or 'hidden';
+        local state = config.settings.ship.visible[1] and 'enabled' or 'disabled';
 
         print(chat.header(addon.name):append(chat.message('Ship Tracker ' .. state .. '.')));
 
@@ -342,13 +337,17 @@ ashita.events.register('d3d_present', 'present_cb', function ()
 
     fonts.push(config.settings);
 
-    bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
+    if config.panels_are_shown() then
 
-    tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
+        bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
 
-    pool.render(config.settings);
+        tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
 
-    ship.render(config.settings);
+        pool.render(config.settings);
+
+        ship.render(config.settings);
+
+    end
 
     fonts.pop();
 

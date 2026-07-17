@@ -44,6 +44,9 @@ M.default_settings = T{
 
     reset_on_load = T{ false },
 
+    -- /fush hide sets this; /fush show clears it. Does not change module enable checkboxes.
+    panels_hidden = T{ false },
+
     -- Last known fishing skill. `exact` becomes true after observing a whole-level
     -- tick (tenths are then trustworthy). level is stored as e.g. 66.4.
     fishing_skill = T{
@@ -531,6 +534,10 @@ ensure_module_settings('tracker');
 ensure_module_settings('pool');
 ensure_module_settings('ship');
 
+if M.settings.panels_hidden == nil then
+    M.settings.panels_hidden = T{ false };
+end
+
 if M.settings.fishing_skill == nil then
     M.settings.fishing_skill = T{
         exact = T{ false },
@@ -542,6 +549,18 @@ if M.settings.fishing_skill.exact == nil then
 end
 if M.settings.fishing_skill.level == nil then
     M.settings.fishing_skill.level = T{ 0 };
+end
+
+-- True when overlay panels should draw. Config enable (visible) is separate;
+-- /fush hide only sets panels_hidden so disabled modules stay disabled on show.
+function M.panels_are_shown()
+    if M.editor_open ~= nil and M.editor_open[1] then
+        return true;
+    end
+    if M.settings.panels_hidden == nil then
+        return true;
+    end
+    return not M.settings.panels_hidden[1];
 end
 
 
@@ -946,6 +965,10 @@ settings.register('settings', 'settings_update', function (s)
     ensure_module_settings('tracker');
     ensure_module_settings('pool');
     ensure_module_settings('ship');
+
+    if M.settings.panels_hidden == nil then
+        M.settings.panels_hidden = T{ false };
+    end
 
     if M.settings.fishing_skill == nil then
         M.settings.fishing_skill = T{

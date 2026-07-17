@@ -593,4 +593,24 @@ function M.draw_gil_icon(draw_list, x, y, size)
     return 0;
 end
 
+-- Draw assets/arrow.png. Returns true if the texture was drawn.
+-- tint: optional ImGui vec4 color (e.g. grey for locked routes).
+function M.draw_arrow_icon(draw_list, x, y, width, height, tint)
+    if draw_list == nil or width == nil or width <= 0 then
+        return false;
+    end
+    height = height or width;
+    local tex = TextureManager.getFileTexture('arrow');
+    local ptr = TextureManager.getTexturePtr(tex);
+    if ptr == nil then
+        return false;
+    end
+    local col = IM_COL32_WHITE;
+    if tint ~= nil then
+        col = imgui.GetColorU32(tint);
+    end
+    draw_list:AddImage(ptr, { x, y }, { x + width, y + height }, { 0, 0 }, { 1, 1 }, col);
+    return true;
+end
+
 return M;

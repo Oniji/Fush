@@ -83,9 +83,9 @@ Optional: add `fush` to your Ashita bootstrap so it loads automatically on login
 | `/fush config` | Toggle the config window |
 | `/fush report` | Print session stats to chat |
 | `/fush clear` | Clear the current session |
-| `/fush show` | Show all panels |
+| `/fush show` | Show enabled panels |
 | `/fush hide` | Hide all panels |
-| `/fush ship` | Toggle the Ship Tracker panel |
+| `/fush ship` | Enable or disable the Ship Tracker |
 | `/fush save` | Save settings |
 | `/fush reload` | Reload settings from disk |
 
