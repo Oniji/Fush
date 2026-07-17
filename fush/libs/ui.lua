@@ -196,9 +196,9 @@ function M.get_background_options(settings, module_name)
         -- Keep the user's opacity slider; only force border off.
         opts.borderOpacity = 0.0;
         opts.borderThickness = 0;
-    elseif opts.theme == 'OceanBlue' then
-        local palette = theme.get_palette('OceanBlue');
-        -- Do not overwrite bgOpacity — Session/Pool/Bite sliders own it.
+        opts.panel_bg_hex = '#000000';
+    elseif opts.theme == 'OceanBlue' or opts.theme == 'GreenGold' or opts.theme == 'DarkGold' then
+        local palette = theme.get_palette(opts.theme);
         opts.borderOpacity = opts.borderOpacity or 0.95;
         opts.panel_bg_hex = palette.panel_bg_hex;
         opts.panel_border_hex = palette.panel_border_hex;
@@ -570,6 +570,8 @@ function M.render_about()
     imgui.TextDisabled(string.format('Version %s', addon.version));
     imgui.TextDisabled('Created by Saraji');
     imgui.Separator();
+    imgui.TextWrapped(attribution.DESCRIPTION);
+    imgui.Spacing();
     imgui.TextWrapped(attribution.XIUI_NOTICE);
     imgui.Spacing();
     imgui.TextWrapped(attribution.get_short_credit());

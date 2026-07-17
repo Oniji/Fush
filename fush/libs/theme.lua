@@ -8,7 +8,48 @@ local imgui = require('imgui');
 
 local M = {};
 
+-- OceanBlue gold shared by OceanBlue and GreenGold.
+local OCEAN_GOLD = { 1.0, 0.886, 0.278, 1.0 };         -- #FFE247
+local OCEAN_GOLD_DARK = { 1.0, 0.843, 0.0, 1.0 };      -- #FFD700
+local OCEAN_GOLD_DARKER = { 0.85, 0.65, 0.05, 1.0 };
+local OCEAN_BORDER_GOLD = { 1.0, 0.886, 0.278, 0.95 };
+
 M.palettes = {
+    OceanBlue = {
+        gold = OCEAN_GOLD,
+        gold_dark = OCEAN_GOLD_DARK,
+        gold_darker = OCEAN_GOLD_DARKER,
+        bg_dark = { 0.035, 0.12, 0.38, 0.95 },     -- royal blue config bg
+        bg_medium = { 0.06, 0.18, 0.48, 1.0 },
+        bg_light = { 0.10, 0.26, 0.58, 1.0 },
+        bg_lighter = { 0.15, 0.34, 0.70, 1.0 },
+        text_light = { 0.92, 0.95, 1.0, 1.0 },
+        text_muted = { 0.70, 0.78, 0.92, 1.0 },
+        border_dark = { 0.20, 0.35, 0.70, 1.0 },
+        border_gold = OCEAN_BORDER_GOLD,
+        panel_bg_hex = '#163A9C',
+        panel_border_hex = '#FFE247',
+        default_bg_opacity = 0.30,
+        bar_fill = { 0.25, 0.55, 0.95, 1.0 },
+    },
+    Plain = {
+        -- Black panels / config; white text and separators.
+        gold = { 1.0, 1.0, 1.0, 1.0 },
+        gold_dark = { 0.85, 0.85, 0.85, 1.0 },
+        gold_darker = { 0.65, 0.65, 0.65, 1.0 },
+        bg_dark = { 0.0, 0.0, 0.0, 0.95 },
+        bg_medium = { 0.08, 0.08, 0.08, 1.0 },
+        bg_light = { 0.14, 0.14, 0.14, 1.0 },
+        bg_lighter = { 0.22, 0.22, 0.22, 1.0 },
+        text_light = { 1.0, 1.0, 1.0, 1.0 },
+        text_muted = { 0.70, 0.70, 0.70, 1.0 },
+        border_dark = { 1.0, 1.0, 1.0, 0.85 },
+        border_gold = { 1.0, 1.0, 1.0, 0.90 },
+        panel_bg_hex = '#000000',
+        panel_border_hex = '#FFFFFF',
+        default_bg_opacity = 0.50,
+        bar_fill = { 0.85, 0.85, 0.85, 1.0 },
+    },
     DarkGold = {
         gold = { 0.957, 0.855, 0.592, 1.0 },       -- #F4DA97
         gold_dark = { 0.765, 0.684, 0.474, 1.0 },  -- #C3AE79
@@ -26,23 +67,31 @@ M.palettes = {
         default_bg_opacity = 0.92,
         bar_fill = { 0.22, 0.60, 0.81, 1.0 },
     },
-    OceanBlue = {
-        gold = { 1.0, 0.886, 0.278, 1.0 },         -- #FFE247 bright yellow/gold
-        gold_dark = { 1.0, 0.843, 0.0, 1.0 },      -- #FFD700
-        gold_darker = { 0.85, 0.65, 0.05, 1.0 },
-        bg_dark = { 0.035, 0.12, 0.38, 0.95 },     -- royal blue config bg
-        bg_medium = { 0.06, 0.18, 0.48, 1.0 },
-        bg_light = { 0.10, 0.26, 0.58, 1.0 },
-        bg_lighter = { 0.15, 0.34, 0.70, 1.0 },
-        text_light = { 0.92, 0.95, 1.0, 1.0 },
-        text_muted = { 0.70, 0.78, 0.92, 1.0 },
-        border_dark = { 0.20, 0.35, 0.70, 1.0 },
-        border_gold = { 1.0, 0.886, 0.278, 0.95 }, -- bright yellow/gold trim
-        panel_bg_hex = '#163A9C',                  -- royal blue
+    GreenGold = {
+        gold = OCEAN_GOLD,
+        gold_dark = OCEAN_GOLD_DARK,
+        gold_darker = OCEAN_GOLD_DARKER,
+        bg_dark = { 0.02, 0.10, 0.05, 0.95 },      -- deep forest
+        bg_medium = { 0.04, 0.16, 0.08, 1.0 },
+        bg_light = { 0.07, 0.24, 0.12, 1.0 },
+        bg_lighter = { 0.10, 0.32, 0.16, 1.0 },
+        text_light = { 0.90, 0.96, 0.90, 1.0 },
+        text_muted = { 0.60, 0.75, 0.62, 1.0 },
+        border_dark = { 0.15, 0.40, 0.22, 1.0 },
+        border_gold = OCEAN_BORDER_GOLD,
+        panel_bg_hex = '#0A2E14',
         panel_border_hex = '#FFE247',
-        default_bg_opacity = 0.30,
-        bar_fill = { 0.25, 0.55, 0.95, 1.0 },
+        default_bg_opacity = 0.55,
+        bar_fill = { 0.25, 0.70, 0.40, 1.0 },
     },
+};
+
+-- Display order / labels for the Appearance radio list.
+M.THEME_OPTIONS = T{
+    { id = 'OceanBlue', label = 'OceanBlue (Default)' },
+    { id = 'Plain',     label = 'Plain' },
+    { id = 'DarkGold',  label = 'DarkGold' },
+    { id = 'GreenGold', label = 'GreenGold' },
 };
 
 local function apply_palette(p)
@@ -76,14 +125,14 @@ local function apply_palette(p)
     };
 end
 
-apply_palette(M.palettes.DarkGold);
-M.active_name = 'DarkGold';
+apply_palette(M.palettes.OceanBlue);
+M.active_name = 'OceanBlue';
 
 function M.set_active(theme_name)
     local palette = M.palettes[theme_name];
     if palette == nil then
-        palette = M.palettes.DarkGold;
-        theme_name = 'DarkGold';
+        palette = M.palettes.OceanBlue;
+        theme_name = 'OceanBlue';
     end
     if M.active_name == theme_name then
         return;
@@ -93,7 +142,7 @@ function M.set_active(theme_name)
 end
 
 function M.get_palette(theme_name)
-    return M.palettes[theme_name] or M.palettes.DarkGold;
+    return M.palettes[theme_name] or M.palettes.OceanBlue;
 end
 
 function M.hex_to_imgui(hex)
@@ -115,6 +164,8 @@ function M.apply_style()
 
     local g = M.gold;
     local tab_active = { g[1], g[2], g[3], 0.3 };
+    local plain = M.active_name == 'Plain';
+    local text_disabled = plain and M.text_muted or M.gold_dark;
 
     imgui.PushStyleColor(ImGuiCol_WindowBg, M.bg_dark);
     imgui.PushStyleColor(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
@@ -129,7 +180,7 @@ function M.apply_style()
     imgui.PushStyleColor(ImGuiCol_HeaderActive, tab_active);
     imgui.PushStyleColor(ImGuiCol_Border, M.border_gold);
     imgui.PushStyleColor(ImGuiCol_Text, M.text_light);
-    imgui.PushStyleColor(ImGuiCol_TextDisabled, M.gold_dark);
+    imgui.PushStyleColor(ImGuiCol_TextDisabled, text_disabled);
     imgui.PushStyleColor(ImGuiCol_Button, M.bg_medium);
     imgui.PushStyleColor(ImGuiCol_ButtonHovered, M.bg_light);
     imgui.PushStyleColor(ImGuiCol_ButtonActive, M.bg_lighter);

@@ -4,6 +4,10 @@
 
 local M = {};
 
+M.DESCRIPTION = [[
+Fush is an Ashita v4 fishing companion for HorizonXI. It shows bite type and feeling as you hook, tracks session casts, bites, catches, skillups, and gil, displays HorizonXI pool restock timing on the Vanadiel clock, and countdowns for common ferry routes until the next departure.
+]];
+
 M.XIUI_URL = 'https://github.com/tirem/XIUI';
 M.XIUI_LICENSE = 'GNU General Public License v3.0';
 

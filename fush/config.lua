@@ -660,18 +660,14 @@ local function render_appearance()
 
     imgui.Text('Window Theme');
 
-    local themes = T{ 'DarkGold', 'OceanBlue', 'Plain' };
-
+    local themes = theme.THEME_OPTIONS;
     local current_theme = M.settings.ui.background_theme[1];
 
-    for _, theme_name in ipairs(themes) do
-
-        if imgui.RadioButton(theme_name, current_theme == theme_name) then
-            M.settings.ui.background_theme[1] = theme_name;
+    for _, entry in ipairs(themes) do
+        if imgui.RadioButton(entry.label, current_theme == entry.id) then
+            M.settings.ui.background_theme[1] = entry.id;
         end
-
         imgui.SameLine();
-
     end
 
     imgui.NewLine();
@@ -687,7 +683,6 @@ local function render_appearance()
     render_module_style_section('Bite', M.settings.ui.bite);
     render_module_style_section('Session', M.settings.ui.tracker);
     render_module_style_section('Pool', M.settings.ui.pool);
-    render_module_style_section('Ship', M.settings.ui.ship);
 
     if M.settings.ui.pool.show_next_restock == nil then
         M.settings.ui.pool.show_next_restock = T{ true };
@@ -701,6 +696,8 @@ local function render_appearance()
     imgui.Checkbox('Show Next Restock', M.settings.ui.pool.show_next_restock);
     imgui.Checkbox('Show Vana Time', M.settings.ui.pool.show_vana_time);
     imgui.Checkbox('Show Moon Phase', M.settings.ui.pool.show_moon_phase);
+
+    render_module_style_section('Ship', M.settings.ui.ship);
 
     imgui.EndChild();
 
@@ -757,7 +754,6 @@ local function render_positions()
         M.settings.bite.x[1] = bite_pos[1];
         M.settings.bite.y[1] = bite_pos[2];
     end
-    imgui.TextDisabled('Bite X is the center seam; halves grow outward from it.');
 
     local tracker_pos = T{ M.settings.tracker.x[1], M.settings.tracker.y[1] };
     if imgui.InputInt2('Tracker Position', tracker_pos) then

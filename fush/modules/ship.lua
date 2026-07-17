@@ -116,7 +116,9 @@ function M.render(settings)
     end
 
     COLOR_TIMER_OK = theme.colors.text_light;
-    COLOR_TIMER_WARN = theme.colors.text_gold;
+    -- Keep warning yellow even on Plain (theme gold becomes white there).
+    local ocean = theme.get_palette('OceanBlue');
+    COLOR_TIMER_WARN = ocean and ocean.gold or { 1.0, 0.886, 0.278, 1.0 };
 
     local timestamp = vana.get_timestamp();
     local now_os = os.time();
