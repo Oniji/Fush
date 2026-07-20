@@ -21,6 +21,8 @@ M.FEEL_MESSAGES = {
     { message = 'You\'re fairly sure you don\'t have enough skill to reel this one in.', feel = 'Low Skill', color = '#e6c84a', logcolor = 141 },
     { message = 'You\'re positive you don\'t have enough skill to reel this one in!', feel = 'Too Low', color = '#ff5555', logcolor = 167 },
     { message = 'This strength... You get the sense that you are on the verge of an epic catch!', feel = 'Epic', color = '#b44dff', logcolor = 204 },
+    -- Keen Angler's Sense (fish name varies, e.g. "an emperor fish").
+    { message = 'Your keen angler\'s senses tell you that this is the pull of an? (.+)!', feel = 'Keen', color = '#3359B3', logcolor = 204 },
 };
 
 M.FISH_HOOK_TYPES = T{ 'Small Fish', 'Large Fish' };
