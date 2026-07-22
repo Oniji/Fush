@@ -176,6 +176,9 @@ M.default_settings = T{
 
         use_lure = T{ false },
 
+        -- Per-fish pricing mode: "name:vendor|ah|highest" (default ah when absent).
+        item_price_modes = T{},
+
         item_index = T{
             'abaia:1920',
             'ahtapot:700',
@@ -388,10 +391,20 @@ M.default_settings = T{
 M.settings = settings.load(M.default_settings);
 
 M.pricing = T{};
+-- Full price book for the editor: [lower_name] = { name, vendor, ah, mode, has_ah }
+M.price_book = T{};
 
 M.editor_open = T{ false };
 
-
+-- Fish price editor transient UI state (not persisted).
+M.price_ui = {
+    selected = T{ '' },
+    vendor = T{ 0 },
+    ah = T{ 0 },
+    -- true once the selected line includes (or user sets) an AH price field.
+    has_ah = false,
+    mode = 'ah',
+};
 
 ui.bind(M.settings, M.editor_open);
 
@@ -597,26 +610,343 @@ local function split(input, sep)
 
 end
 
+local PRICE_MODES = {
+    vendor = true,
+    ah = true,
+    highest = true,
+};
 
+local function normalize_mode(mode)
+    mode = tostring(mode or ''):lower();
+    if PRICE_MODES[mode] then
+        return mode;
+    end
+    return 'ah';
+end
 
-function M.update_pricing()
+local function ensure_price_modes()
+    if M.settings.tracker.item_price_modes == nil then
+        M.settings.tracker.item_price_modes = T{};
+    end
+    return M.settings.tracker.item_price_modes;
+end
 
-    M.pricing = T{};
-
-    for _, entry in ipairs(M.settings.tracker.item_index) do
-        entry = trim_line(entry);
+local function load_mode_map()
+    local map = {};
+    for _, entry in ipairs(ensure_price_modes()) do
+        entry = trim_line(tostring(entry or ''));
         if entry ~= '' then
             local colon = entry:find(':');
             if colon ~= nil and colon > 1 then
-                local name = trim_line(entry:sub(1, colon - 1));
-                local price = tonumber(trim_line(entry:sub(colon + 1))) or 0;
+                local name = string.lower(trim_line(entry:sub(1, colon - 1)));
+                local mode = normalize_mode(trim_line(entry:sub(colon + 1)));
                 if name ~= '' then
-                    M.pricing[string.lower(name)] = price;
+                    map[name] = mode;
                 end
             end
         end
     end
+    return map;
+end
 
+local function save_mode_map(map)
+    local list = T{};
+    local names = T{};
+    for name, _ in pairs(map) do
+        names:append(name);
+    end
+    table.sort(names);
+    for _, name in ipairs(names) do
+        local mode = normalize_mode(map[name]);
+        -- Only persist non-default modes to keep the list small.
+        if mode ~= 'ah' then
+            list:append(string.format('%s:%s', name, mode));
+        end
+    end
+    M.settings.tracker.item_price_modes = list;
+end
+
+local function set_item_mode(name, mode)
+    name = string.lower(trim_line(name or ''));
+    if name == '' then
+        return;
+    end
+    local map = load_mode_map();
+    map[name] = normalize_mode(mode);
+    save_mode_map(map);
+end
+
+local function get_item_mode(name, mode_map)
+    name = string.lower(trim_line(name or ''));
+    if name == '' then
+        return 'ah';
+    end
+    mode_map = mode_map or load_mode_map();
+    return normalize_mode(mode_map[name]);
+end
+
+-- Returns display_name, vendor, ah_or_nil, ok
+-- Accepts "name:price" or "name:vendor:ah".
+local function parse_price_line(entry)
+    entry = trim_line(tostring(entry or ''));
+    if entry == '' then
+        return nil, nil, nil, false;
+    end
+
+    local parts = T{};
+    for part in string.gmatch(entry, '([^:]+)') do
+        parts:append(trim_line(part));
+    end
+
+    if #parts < 2 or #parts > 3 then
+        return nil, nil, nil, false;
+    end
+
+    local name = parts[1];
+    if name == nil or name == '' then
+        return nil, nil, nil, false;
+    end
+
+    local vendor = tonumber(parts[2]);
+    if vendor == nil then
+        return nil, nil, nil, false;
+    end
+
+    local ah = nil;
+    if #parts == 3 then
+        ah = tonumber(parts[3]);
+        if ah == nil then
+            return nil, nil, nil, false;
+        end
+    end
+
+    return name, vendor, ah, true;
+end
+
+local function format_price_line(name, vendor, ah)
+    name = trim_line(tostring(name or ''));
+    vendor = math.floor(tonumber(vendor) or 0);
+    if ah == nil then
+        return string.format('%s:%d', name, vendor);
+    end
+    return string.format('%s:%d:%d', name, vendor, math.floor(tonumber(ah) or 0));
+end
+
+local function resolve_unit_price(vendor, ah, mode)
+    vendor = tonumber(vendor) or 0;
+    mode = normalize_mode(mode);
+    if mode == 'vendor' then
+        return vendor;
+    end
+    if mode == 'highest' then
+        if ah == nil then
+            return vendor;
+        end
+        return math.max(vendor, tonumber(ah) or 0);
+    end
+    -- Default: AH if exists, else vendor.
+    if ah ~= nil then
+        return tonumber(ah) or 0;
+    end
+    return vendor;
+end
+
+local function title_case_name(name)
+    if name == nil or name == '' then
+        return name;
+    end
+    return (tostring(name):lower():gsub("(%a)([%w']*)", function(first, rest)
+        return first:upper() .. rest;
+    end));
+end
+
+local function list_price_items()
+    local items = T{};
+    local seen = {};
+    for _, entry in ipairs(M.settings.tracker.item_index or {}) do
+        local name, vendor, ah, ok = parse_price_line(entry);
+        if ok and not seen[string.lower(name)] then
+            seen[string.lower(name)] = true;
+            items:append({
+                name = name,
+                key = string.lower(name),
+                label = title_case_name(name),
+                vendor = vendor,
+                ah = ah,
+                has_ah = ah ~= nil,
+            });
+        end
+    end
+    table.sort(items, function(a, b)
+        return a.label < b.label;
+    end);
+    return items;
+end
+
+local function find_item_index_line(name)
+    local key = string.lower(trim_line(name or ''));
+    if key == '' then
+        return nil;
+    end
+    for i, entry in ipairs(M.settings.tracker.item_index or {}) do
+        local parsed = select(1, parse_price_line(entry));
+        if parsed ~= nil and string.lower(parsed) == key then
+            return i;
+        end
+    end
+    return nil;
+end
+
+local function write_item_price_line(name, vendor, ah)
+    local idx = find_item_index_line(name);
+    if idx == nil then
+        return false;
+    end
+    -- Preserve original casing from the existing line when possible.
+    local existing = select(1, parse_price_line(M.settings.tracker.item_index[idx]));
+    local write_name = existing or name;
+    M.settings.tracker.item_index[idx] = format_price_line(write_name, vendor, ah);
+    return true;
+end
+
+local function load_price_ui_from_item(item)
+    if item == nil then
+        M.price_ui.selected[1] = '';
+        M.price_ui.vendor[1] = 0;
+        M.price_ui.ah[1] = 0;
+        M.price_ui.has_ah = false;
+        M.price_ui.mode = 'ah';
+        return;
+    end
+    M.price_ui.selected[1] = item.key;
+    M.price_ui.vendor[1] = item.vendor or 0;
+    M.price_ui.has_ah = item.has_ah == true;
+    M.price_ui.ah[1] = item.ah or 0;
+    M.price_ui.mode = get_item_mode(item.key);
+end
+
+function M.update_pricing()
+
+    M.pricing = T{};
+    M.price_book = T{};
+    local mode_map = load_mode_map();
+
+    for _, entry in ipairs(M.settings.tracker.item_index or {}) do
+        local name, vendor, ah, ok = parse_price_line(entry);
+        if ok then
+            local key = string.lower(name);
+            local mode = get_item_mode(key, mode_map);
+            M.price_book[key] = {
+                name = name,
+                vendor = vendor,
+                ah = ah,
+                has_ah = ah ~= nil,
+                mode = mode,
+            };
+            M.pricing[key] = resolve_unit_price(vendor, ah, mode);
+        end
+    end
+
+end
+
+local function render_price_editor()
+    local items = list_price_items();
+    local selected_key = M.price_ui.selected[1] or '';
+    local selected_item = nil;
+    local selected_label = '(none)';
+
+    for _, item in ipairs(items) do
+        if item.key == selected_key then
+            selected_item = item;
+            selected_label = item.label;
+            break;
+        end
+    end
+
+    -- If selection is missing (list edited), pick the first fish.
+    if selected_item == nil and #items > 0 then
+        selected_item = items[1];
+        load_price_ui_from_item(selected_item);
+        selected_key = selected_item.key;
+        selected_label = selected_item.label;
+    elseif selected_item == nil then
+        load_price_ui_from_item(nil);
+        selected_label = '(none)';
+    end
+
+    imgui.Text('Fish Price Editor');
+    imgui.BeginChild('fush_price_editor', { 0, 202 }, true);
+
+    if #items == 0 then
+        imgui.TextWrapped('Add valid price lines below to edit fish pricing here.');
+        imgui.EndChild();
+        return;
+    end
+
+    if imgui.BeginCombo('Fish', selected_label) then
+        for _, item in ipairs(items) do
+            local is_selected = item.key == selected_key;
+            if imgui.Selectable(item.label, is_selected) then
+                load_price_ui_from_item(item);
+                selected_item = item;
+                selected_key = item.key;
+            end
+            if is_selected then
+                imgui.SetItemDefaultFocus();
+            end
+        end
+        imgui.EndCombo();
+    end
+
+    local avail = imgui.GetContentRegionAvail();
+    if type(avail) == 'table' then
+        avail = avail[1] or avail.x or 200;
+    end
+    local half_w = math.max(80, math.floor((tonumber(avail) or 200) * 0.5));
+
+    imgui.PushItemWidth(half_w);
+    if imgui.InputInt('Vendor Price', M.price_ui.vendor) then
+        if M.price_ui.vendor[1] < 0 then
+            M.price_ui.vendor[1] = 0;
+        end
+        local ah = M.price_ui.has_ah and M.price_ui.ah[1] or nil;
+        if write_item_price_line(selected_key, M.price_ui.vendor[1], ah) then
+            M.update_pricing();
+        end
+    end
+    imgui.PopItemWidth();
+
+    imgui.PushItemWidth(half_w);
+    if imgui.InputInt('AH Price', M.price_ui.ah) then
+        if M.price_ui.ah[1] < 0 then
+            M.price_ui.ah[1] = 0;
+        end
+        M.price_ui.has_ah = true;
+        if write_item_price_line(selected_key, M.price_ui.vendor[1], M.price_ui.ah[1]) then
+            M.update_pricing();
+        end
+    end
+    imgui.PopItemWidth();
+
+    imgui.Text('Price Source');
+    local mode = M.price_ui.mode or 'ah';
+    if imgui.RadioButton('Use vendor price', mode == 'vendor') then
+        M.price_ui.mode = 'vendor';
+        set_item_mode(selected_key, 'vendor');
+        M.update_pricing();
+    end
+    if imgui.RadioButton('Use AH price (if exists)', mode == 'ah') then
+        M.price_ui.mode = 'ah';
+        set_item_mode(selected_key, 'ah');
+        M.update_pricing();
+    end
+    if imgui.RadioButton('Use the highest value', mode == 'highest') then
+        M.price_ui.mode = 'highest';
+        set_item_mode(selected_key, 'highest');
+        M.update_pricing();
+    end
+
+    imgui.EndChild();
 end
 
 
@@ -741,7 +1071,7 @@ end
 
 local function render_tracker()
 
-    imgui.BeginChild('fush_tracker_cfg', { 0, 148 }, true);
+    imgui.BeginChild('fush_tracker_cfg', { 0, 155 }, true);
 
     -- Half-width inputs so long labels stay visible in the config window.
     local avail = imgui.GetContentRegionAvail();
@@ -771,14 +1101,32 @@ local function render_tracker()
 
 
 
-    imgui.Text('Item Prices (name:price, one per line)');
+    render_price_editor();
+
+    imgui.Text('Item Prices (name:price or name:vendor:ah, one per line)');
 
     local temp = T{ table.concat(M.settings.tracker.item_index, '\n') };
 
-    if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, fill_height(120) }) then
+    if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, fill_height(100) }) then
 
         M.settings.tracker.item_index = split(temp[1], '\n');
         M.update_pricing();
+
+        local key = M.price_ui.selected[1] or '';
+        local book = M.price_book[key];
+        if book ~= nil then
+            load_price_ui_from_item({
+                name = book.name,
+                key = key,
+                label = title_case_name(book.name),
+                vendor = book.vendor,
+                ah = book.ah,
+                has_ah = book.has_ah,
+            });
+        else
+            local items = list_price_items();
+            load_price_ui_from_item(items[1]);
+        end
 
     end
 
