@@ -36,4 +36,12 @@ function M.format_gph(total_gil, elapsed_seconds)
     return math.floor((total_gil / elapsed_seconds) * 3600);
 end
 
+function M.format_duration(seconds)
+    seconds = math.floor(math.max(0, tonumber(seconds) or 0));
+    local h = math.floor(seconds / 3600);
+    local m = math.floor((seconds % 3600) / 60);
+    local s = seconds % 60;
+    return string.format('%02d:%02d:%02d', h, m, s);
+end
+
 return M;

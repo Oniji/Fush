@@ -20,7 +20,7 @@ addon.name = 'fush';
 
 addon.author = 'Saraji';
 
-addon.version = '0.3.0';
+addon.version = '0.4.0';
 
 addon.desc = 'Fishing bite tracker, session stats, pool resupply, and ship schedules. UI adapted from XIUI (GPLv3).';
 

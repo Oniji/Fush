@@ -26,6 +26,7 @@ Ported/adapted components include:
   - libs/drawing.lua
   - assets/backgrounds/* (Window1 theme)
   - assets/gil.png, assets/arrow.png (optional icons)
+  - assets/session_play.png, session_pause.png, session_clear.png (session controls)
   - Procedural bar bookends (no bookend.png asset; drawn via progressbar.lua)
 
 Source code for Fush is available at the addon repository. Corresponding

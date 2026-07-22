@@ -71,6 +71,7 @@ M.default_settings = T{
         broken = T{ 0 },
         elapsed_ms = T{ 0 },
         activity_ago_ms = T{ 0 },
+        paused = T{ false },
         skill_gain = T{ 0 },
         skill_start = T{ -1 },
         rewards = T{},
@@ -98,6 +99,8 @@ M.default_settings = T{
             border_opacity = T{ 0.9 },
             border_thickness = T{ 0 },
             panel_rounding = T{ 6 },
+            show_duration = T{ false },
+            show_controls = T{ false },
         },
         pool = T{
             scale = T{ 1.0 },
@@ -164,6 +167,8 @@ M.default_settings = T{
         y = T{ 320 },
 
         display_timeout = T{ 600 },
+
+        never_hide = T{ false },
 
         bait_cost = T{ 1 },
 
@@ -701,6 +706,16 @@ local function render_appearance()
 
     render_module_style_section('Bite', M.settings.ui.bite);
     render_module_style_section('Session', M.settings.ui.tracker);
+
+    if M.settings.ui.tracker.show_duration == nil then
+        M.settings.ui.tracker.show_duration = T{ false };
+    end
+    if M.settings.ui.tracker.show_controls == nil then
+        M.settings.ui.tracker.show_controls = T{ false };
+    end
+    imgui.Checkbox('Show Duration', M.settings.ui.tracker.show_duration);
+    imgui.Checkbox('Show Controls', M.settings.ui.tracker.show_controls);
+
     render_module_style_section('Pool', M.settings.ui.pool);
 
     if M.settings.ui.pool.show_next_restock == nil then
@@ -726,11 +741,27 @@ end
 
 local function render_tracker()
 
-    imgui.BeginChild('fush_tracker_cfg', { 0, 123 }, true);
+    imgui.BeginChild('fush_tracker_cfg', { 0, 148 }, true);
 
+    -- Half-width inputs so long labels stay visible in the config window.
+    local avail = imgui.GetContentRegionAvail();
+    if type(avail) == 'table' then
+        avail = avail[1] or avail.x or 200;
+    end
+    local half_w = math.max(80, math.floor((tonumber(avail) or 200) * 0.5));
+
+    imgui.PushItemWidth(half_w);
     imgui.InputInt('Display Timeout (sec)', M.settings.tracker.display_timeout);
+    imgui.PopItemWidth();
 
+    if M.settings.tracker.never_hide == nil then
+        M.settings.tracker.never_hide = T{ false };
+    end
+    imgui.Checkbox('Never Hide', M.settings.tracker.never_hide);
+
+    imgui.PushItemWidth(half_w);
     imgui.InputInt('Bait Cost (per cast)', M.settings.tracker.bait_cost);
+    imgui.PopItemWidth();
 
     imgui.Checkbox('Subtract Bait Cost', M.settings.tracker.subtract_bait);
 

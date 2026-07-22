@@ -37,6 +37,10 @@ M.session = {
     broken = 0,
     first_cast_ms = 0,
     last_activity_ms = 0,
+    -- Pause support: elapsed excludes time while paused (affects Rate/gph).
+    paused = false,
+    pause_started_ms = 0,
+    pause_accumulated_ms = 0,
     current_hook = nil,
     rewards = T{},
     skill_start = nil,
@@ -153,9 +157,11 @@ function M.reset_rate_cache()
     M.rate_cache.last_update_ms = 0;
 end
 
--- Wipe live session/skill runtime state without writing settings.
+-- Wipe live session runtime state without writing settings.
 -- Used when binding a different character's settings table.
-function M.clear_session_memory()
+-- preserve_skill: keep exact fishing skill (session clear); character binds
+-- must leave this false so another character's skill cannot leak.
+function M.clear_session_memory(preserve_skill)
     M.session.lines_cast = 0;
     M.session.bait_used = 0;
     M.session.hooks = 0;
@@ -170,13 +176,18 @@ function M.clear_session_memory()
     M.session.broken = 0;
     M.session.first_cast_ms = 0;
     M.session.last_activity_ms = 0;
+    M.session.paused = false;
+    M.session.pause_started_ms = 0;
+    M.session.pause_accumulated_ms = 0;
     M.session.current_hook = nil;
     M.session.rewards = T{};
     M.session.skill_gain = 0;
     M.session.skill_start = nil;
-    M.session.fishing_frac = 0;
-    M.session.last_skill_int = nil;
-    M.session.skill_exact = false;
+    if not preserve_skill then
+        M.session.fishing_frac = 0;
+        M.session.last_skill_int = nil;
+        M.session.skill_exact = false;
+    end
     M.session_dirty = false;
     M.skill_dirty = false;
     M.reset_rate_cache();
@@ -186,7 +197,7 @@ end
 -- Always clears in-memory session first so another character's data cannot leak.
 function M.bind_skill_settings(settings_ref)
     M.skill_settings = settings_ref;
-    M.clear_session_memory();
+    M.clear_session_memory(false);
     -- Restore session before skill: skill restore may flush settings to disk
     -- and must not overwrite this character's snapshot with an empty session.
     M.restore_session();
@@ -240,6 +251,37 @@ local function round_tenth(v)
     return math.floor(v * 10 + 0.5) / 10;
 end
 
+-- Exact skill (from a whole-rank tick) is source of truth. Only treat the craft
+-- API as a hard contradiction when it disagrees by more than one whole level
+-- (e.g. stored 89.3 vs API 91). Off-by-one is common around rank-up and must
+-- not discard tenths; the whole-rank chat/packet is what advances the integer.
+local function api_contradicts_exact(skill_int, base_int)
+    if skill_int == nil or base_int == nil then
+        return false;
+    end
+    return math.abs(skill_int - base_int) > 1;
+end
+
+local function apply_exact_skill(base_int, frac)
+    M.session.skill_exact = true;
+    M.session.last_skill_int = base_int;
+    M.session.fishing_frac = math.min(0.9, math.max(0, round_tenth(frac or 0)));
+end
+
+local function clear_exact_skill(skill_int)
+    M.session.skill_exact = false;
+    M.session.fishing_frac = 0;
+    if skill_int ~= nil then
+        M.session.last_skill_int = skill_int;
+    end
+    if M.skill_settings ~= nil and M.skill_settings.fishing_skill ~= nil then
+        M.skill_settings.fishing_skill.exact[1] = false;
+        if skill_int ~= nil then
+            M.skill_settings.fishing_skill.level[1] = skill_int;
+        end
+    end
+end
+
 function M.persist_fishing_skill(force)
     if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
         return;
@@ -249,7 +291,11 @@ function M.persist_fishing_skill(force)
     local api_ok = api_skill_usable(skill_int);
     local base = nil;
     if M.session.skill_exact then
-        base = api_ok and skill_int or M.session.last_skill_int;
+        -- Never let a transient API whole-level overwrite the exact base.
+        base = M.session.last_skill_int;
+        if base == nil and api_ok then
+            base = skill_int;
+        end
     else
         if not api_ok then
             return;
@@ -265,9 +311,7 @@ function M.persist_fishing_skill(force)
     local store = M.skill_settings.fishing_skill;
     store.exact[1] = M.session.skill_exact == true;
     store.level[1] = round_tenth(level);
-    if api_ok then
-        M.session.last_skill_int = skill_int;
-    elseif M.session.last_skill_int == nil then
+    if M.session.last_skill_int == nil then
         M.session.last_skill_int = base;
     end
     M.skill_dirty = true;
@@ -333,6 +377,7 @@ local function ensure_session_snapshot()
             broken = T{ 0 },
             elapsed_ms = T{ 0 },
             activity_ago_ms = T{ 0 },
+            paused = T{ false },
             skill_gain = T{ 0 },
             skill_start = T{ -1 },
             rewards = T{},
@@ -355,6 +400,7 @@ local function ensure_session_snapshot()
         broken = 0,
         elapsed_ms = 0,
         activity_ago_ms = 0,
+        paused = false,
         skill_gain = 0,
         skill_start = -1,
     };
@@ -408,6 +454,9 @@ function M.persist_session()
         snap.broken[1] = 0;
         snap.elapsed_ms[1] = 0;
         snap.activity_ago_ms[1] = 0;
+        if snap.paused ~= nil then
+            snap.paused[1] = false;
+        end
         snap.skill_gain[1] = 0;
         snap.skill_start[1] = -1;
         snap.rewards = T{};
@@ -429,10 +478,13 @@ function M.persist_session()
     snap.monsters_caught[1] = s.monsters_caught or 0;
     snap.lost[1] = s.lost or 0;
     snap.broken[1] = s.broken or 0;
-    snap.elapsed_ms[1] = (s.first_cast_ms ~= nil and s.first_cast_ms > 0)
-        and math.max(0, now - s.first_cast_ms) or 0;
+    -- Persist active elapsed (pause time excluded) so restore keeps Rate correct.
+    snap.elapsed_ms[1] = math.floor(M.get_elapsed_seconds(s) * 1000 + 0.5);
     snap.activity_ago_ms[1] = (s.last_activity_ms ~= nil and s.last_activity_ms > 0)
         and math.max(0, now - s.last_activity_ms) or 0;
+    if snap.paused ~= nil then
+        snap.paused[1] = s.paused == true;
+    end
     snap.skill_gain[1] = s.skill_gain or 0;
     snap.skill_start[1] = (s.skill_start ~= nil) and s.skill_start or -1;
 
@@ -493,6 +545,14 @@ function M.restore_session()
         M.session.last_activity_ms = 0;
     end
 
+    M.session.pause_accumulated_ms = 0;
+    M.session.pause_started_ms = 0;
+    M.session.paused = snap.paused ~= nil and snap.paused[1] == true;
+    if M.session.paused and M.session.first_cast_ms > 0 then
+        -- Freeze the restored active elapsed until the player resumes.
+        M.session.pause_started_ms = now;
+    end
+
     M.session.rewards = T{};
     for _, entry in ipairs(snap.rewards or {}) do
         entry = trim_line(tostring(entry or ''));
@@ -518,9 +578,7 @@ function M.restore_fishing_skill()
 
     if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
         if api_ok then
-            M.session.last_skill_int = skill_int;
-            M.session.skill_exact = false;
-            M.session.fishing_frac = 0;
+            clear_exact_skill(skill_int);
         end
         return;
     end
@@ -536,26 +594,19 @@ function M.restore_fishing_skill()
 
         if not api_ok then
             -- Zone/load: keep decimals; ignore unavailable API (often 0).
-            M.session.skill_exact = true;
-            M.session.fishing_frac = math.min(0.9, saved_frac);
-            M.session.last_skill_int = saved_int;
+            apply_exact_skill(saved_int, saved_frac);
             return;
         end
 
-        if skill_int == saved_int then
-            M.session.skill_exact = true;
-            M.session.fishing_frac = math.min(0.9, saved_frac);
-            M.session.last_skill_int = skill_int;
+        if not api_contradicts_exact(skill_int, saved_int) then
+            -- Same whole level, or off-by-one around rank-up: keep saved exact.
+            apply_exact_skill(saved_int, saved_frac);
             return;
         end
 
-        -- Non-zero API whole level differs from stored (e.g. 89 vs 88.1).
-        -- Trust API integer and hide decimals until the next whole-rank tick.
-        M.session.skill_exact = false;
-        M.session.fishing_frac = 0;
-        M.session.last_skill_int = skill_int;
-        store.exact[1] = false;
-        store.level[1] = skill_int;
+        -- Hard contradiction (e.g. API 91 vs saved 89.3): trust API integer,
+        -- hide tenths until the next whole-rank chat/packet.
+        clear_exact_skill(skill_int);
         M.skill_dirty = true;
         M.persist_fishing_skill(true);
         return;
@@ -563,9 +614,7 @@ function M.restore_fishing_skill()
 
     -- No exact store yet: only adopt a usable API integer.
     if api_ok then
-        M.session.skill_exact = false;
-        M.session.fishing_frac = 0;
-        M.session.last_skill_int = skill_int;
+        clear_exact_skill(skill_int);
     end
 end
 
@@ -587,24 +636,19 @@ function M.get_fishing_skill()
 
     if M.session.skill_exact then
         local base = M.session.last_skill_int;
-        if api_ok then
-            if base ~= nil and skill_int ~= base then
-                -- API whole level contradicts stored exact skill.
-                M.session.skill_exact = false;
-                M.session.fishing_frac = 0;
-                M.session.last_skill_int = skill_int;
-                if M.skill_settings ~= nil and M.skill_settings.fishing_skill ~= nil then
-                    M.skill_settings.fishing_skill.exact[1] = false;
-                    M.skill_settings.fishing_skill.level[1] = skill_int;
-                end
-                M.persist_fishing_skill(true);
-                return skill_int;
-            end
-            M.session.last_skill_int = skill_int;
-            base = skill_int;
+        if api_ok and base ~= nil and api_contradicts_exact(skill_int, base) then
+            -- API whole level contradicts stored exact skill by >1.
+            clear_exact_skill(skill_int);
+            M.persist_fishing_skill(true);
+            return skill_int;
         end
         if base == nil then
-            return nil;
+            if api_ok then
+                apply_exact_skill(skill_int, M.session.fishing_frac or 0);
+                base = skill_int;
+            else
+                return nil;
+            end
         end
         return base + math.min(0.9, M.session.fishing_frac or 0);
     end
@@ -641,7 +685,7 @@ function M.add_fishing_frac(delta)
 end
 
 function M.on_fishing_skill_tick(new_int)
-    -- Whole-level tick from chat/packet is authoritative for exact tenths at N.0.
+    -- Whole-level tick from chat/packet is always the new source of truth.
     local tick_int = tonumber(new_int);
     if tick_int == nil then
         tick_int = M.get_fishing_skill_int();
@@ -650,9 +694,7 @@ function M.on_fishing_skill_tick(new_int)
         return;
     end
 
-    M.session.fishing_frac = 0;
-    M.session.last_skill_int = tick_int;
-    M.session.skill_exact = true;
+    apply_exact_skill(tick_int, 0);
     mark_session_dirty();
     M.persist_fishing_skill(true);
 end
@@ -662,17 +704,13 @@ function M.ensure_skill_start()
         return;
     end
 
-    local skill_int = M.get_fishing_skill_int();
-    if skill_int == nil then
+    local current = M.get_fishing_skill();
+    if current == nil then
         return;
     end
 
     -- Baseline for internal reference only; session gain uses skill_gain accumulator.
-    if M.session.skill_exact then
-        M.session.skill_start = M.get_fishing_skill();
-    else
-        M.session.skill_start = skill_int;
-    end
+    M.session.skill_start = current;
     mark_session_dirty();
 end
 
@@ -724,9 +762,13 @@ end
 
 function M.reset_session()
     -- Only clears/saves the currently bound character's settings.
-    M.clear_session_memory();
-    -- Keep persisted exact skill across session clears.
-    M.restore_fishing_skill();
+    -- Preserve exact fishing skill across session clears.
+    M.clear_session_memory(true);
+    if not M.session.skill_exact then
+        M.restore_fishing_skill();
+    else
+        M.persist_fishing_skill(true);
+    end
     M.session.skill_start = nil;
     M.persist_session();
     M.session_dirty = false;
@@ -760,6 +802,12 @@ function M.record_cast()
     M.session.lines_cast = M.session.lines_cast + 1;
     if M.session.first_cast_ms == 0 then
         M.session.first_cast_ms = M.session.last_activity_ms;
+        -- If the timer was paused before the first cast, anchor pause here so
+        -- elapsed stays 0 until resume.
+        if M.session.paused then
+            M.session.pause_started_ms = M.session.last_activity_ms;
+            M.session.pause_accumulated_ms = 0;
+        end
     end
     mark_session_dirty();
 end
@@ -869,10 +917,58 @@ function M.get_net_gil(session, settings, pricing)
 end
 
 function M.get_elapsed_seconds(session)
-    if session.first_cast_ms == 0 then
+    session = session or M.session;
+    if session.first_cast_ms == nil or session.first_cast_ms == 0 then
         return 0;
     end
-    return (ashita.time.clock()['ms'] - session.first_cast_ms) / 1000;
+
+    local end_ms;
+    if session.paused and session.pause_started_ms ~= nil and session.pause_started_ms > 0 then
+        end_ms = session.pause_started_ms;
+    else
+        end_ms = ashita.time.clock()['ms'];
+    end
+
+    local paused_ms = session.pause_accumulated_ms or 0;
+    return math.max(0, (end_ms - session.first_cast_ms - paused_ms) / 1000);
+end
+
+function M.is_paused(session)
+    session = session or M.session;
+    return session.paused == true;
+end
+
+function M.pause_session()
+    if M.session.paused then
+        return;
+    end
+    -- No timer yet — nothing to pause, but still mark paused so Rate stays at 0.
+    M.session.paused = true;
+    M.session.pause_started_ms = ashita.time.clock()['ms'];
+    M.touch_activity();
+    M.reset_rate_cache();
+    mark_session_dirty();
+end
+
+function M.resume_session()
+    if not M.session.paused then
+        return;
+    end
+    local now = ashita.time.clock()['ms'];
+    if M.session.pause_started_ms ~= nil and M.session.pause_started_ms > 0 then
+        M.session.pause_accumulated_ms = (M.session.pause_accumulated_ms or 0)
+            + math.max(0, now - M.session.pause_started_ms);
+    end
+    M.session.pause_started_ms = 0;
+    M.session.paused = false;
+    M.touch_activity();
+    M.reset_rate_cache();
+    mark_session_dirty();
+end
+
+function M.clear_session()
+    M.reset_session();
+    M.touch_activity();
 end
 
 function M.handle_packet_in(e)
@@ -922,6 +1018,21 @@ function M.handle_text(e, bite, pricing)
             if not fresh_pkt then
                 M.ensure_skill_start();
                 M.add_fishing_frac(tonumber('0.' .. frac_digit) or 0);
+            end
+        end
+    end
+
+    -- Fallback whole-rank tick from chat (e.g. "Fishing skill rises to 90.").
+    -- Always treated as the new source of truth for exact skill.
+    local tick_name, tick_level = plain:match('([%a%-]+[%a%- ]*)%s*[Ss]kill rises to (%d+)');
+    if tick_name ~= nil and tick_level ~= nil then
+        local name = tick_name:lower():gsub('^your%s+', ''):gsub('%s+$', '');
+        if name == 'fishing' then
+            local fresh_pkt = M.skillup_pkt_at ~= nil and (os.clock() - M.skillup_pkt_at) < 1.5;
+            if not fresh_pkt then
+                M.ensure_skill_start();
+                M.on_fishing_skill_tick(tonumber(tick_level));
+                M.touch_activity();
             end
         end
     end
@@ -1024,7 +1135,7 @@ function M.build_report_for(session, settings, pricing)
     lines:append('~~~~~~ Fush Session ~~~~~~');
     lines:append('Casts: ' .. format.format_int(session.lines_cast));
     lines:append('Bites: ' .. format.format_int(session.hooks));
-    lines:append('Accuracy: ' .. format.format_percent(accuracy));
+    lines:append('Bite Rate: ' .. format.format_percent(accuracy));
     lines:append('Monsters: ' .. format.format_int(session.monster_bites or 0));
     lines:append('Items: ' .. format.format_int(session.item_bites or 0));
     lines:append('Fish: ' .. format.format_int((session.small_fish_bites or 0) + (session.large_fish_bites or 0)));
@@ -1065,7 +1176,7 @@ local function measure_stat_column_width(label, value)
     return math.max(MIN_COLUMN_WIDTH, math.max(text_w(label), text_w(value)) + STAT_COLUMN_PAD);
 end
 
--- Shared widths so Casts/Monsters, Bites/Items, Accuracy/Fish line up.
+-- Shared widths so Casts/Monsters, Bites/Items, Bite Rate/Fish line up.
 local function measure_shared_stat_widths(row1, row2)
     local count = math.max(#row1.labels, #row2.labels);
     local widths = {};
@@ -1086,7 +1197,6 @@ end
 
 local function draw_stat_row(row_id, labels, values, column_widths, colors)
     local count = #labels;
-    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4, 2 });
     imgui.Columns(count, '##fush_stats_' .. row_id, false);
     for i = 0, count - 1 do
         imgui.SetColumnWidth(i, column_widths[i + 1]);
@@ -1098,7 +1208,6 @@ local function draw_stat_row(row_id, labels, values, column_widths, colors)
     end
 
     imgui.Columns(1);
-    imgui.PopStyleVar(1);
 end
 
 -- Reserve space for the longest unit ("gph") so ones-digits share one column
@@ -1120,9 +1229,15 @@ local function get_bait_spent(settings, session)
     return get_bait_qty(session) * settings.tracker.bait_cost[1];
 end
 
+local function control_cluster_metrics(scale)
+    local btn_s = math.max(16, math.floor(18 * (scale or 1) + 0.5));
+    local gap = math.max(3, math.floor(4 * (scale or 1) + 0.5));
+    return btn_s, gap, (btn_s * 3) + (gap * 2);
+end
+
 -- Content-measured width only — never GetWindowWidth(), or AlwaysAutoResize
 -- feedback will stretch the panel forever as right-aligned gil runs away.
-local function compute_tracker_layout(session, pricing, settings, pad, net, gph, skill_line, row1, row2)
+local function compute_tracker_layout(session, pricing, settings, pad, net, gph, skill_value, row1, row2, duration_line, show_controls, scale)
     local max_num_w = math.max(text_w(format.format_int(net)), text_w(format.format_int(gph)));
     local max_name_w = math.max(text_w('Net Gil'), text_w('Rate'), text_w('Bait'));
     local max_count_w = text_w('0');
@@ -1147,8 +1262,19 @@ local function compute_tracker_layout(session, pricing, settings, pad, net, gph,
     local list_w = name_col + CATCH_COUNT_GAP + count_col + CATCH_GIL_GAP + gil_col;
 
     local inner = list_w;
-    if skill_line ~= nil then
-        inner = math.max(inner, text_w(skill_line));
+    local header_w = 0;
+    if skill_value ~= nil then
+        header_w = header_w + math.max(text_w('Skill'), text_w(skill_value));
+    end
+    if duration_line ~= nil then
+        header_w = header_w + 12 + math.max(text_w('Duration'), text_w(duration_line));
+    end
+    if show_controls then
+        local _, _, controls_w = control_cluster_metrics(scale);
+        header_w = header_w + 8 + controls_w;
+    end
+    if header_w > 0 then
+        inner = math.max(inner, header_w);
     end
     local stat_widths, stats_w = measure_shared_stat_widths(row1, row2);
     inner = math.max(inner, stats_w);
@@ -1159,6 +1285,145 @@ local function compute_tracker_layout(session, pricing, settings, pad, net, gph,
         count_x = pad + name_col + CATCH_COUNT_GAP,
         stat_widths = stat_widths,
     };
+end
+
+local function show_tracker_duration(settings)
+    local ui_cfg = settings and settings.ui and settings.ui.tracker;
+    return ui_cfg ~= nil and ui_cfg.show_duration ~= nil and ui_cfg.show_duration[1] == true;
+end
+
+local function show_tracker_controls(settings)
+    local ui_cfg = settings and settings.ui and settings.ui.tracker;
+    return ui_cfg ~= nil and ui_cfg.show_controls ~= nil and ui_cfg.show_controls[1] == true;
+end
+
+local function push_control_button_colors(active)
+    local bg = active and (theme.colors.accent or theme.colors.text_gold) or (theme.colors.bg_mid or theme.bg_medium);
+    local hovered = theme.colors.bg_light or theme.bg_light;
+    local pressed = theme.colors.bg_light or theme.bg_lighter;
+    if active then
+        hovered = theme.colors.text_gold or theme.gold;
+        pressed = theme.colors.accent or theme.gold_dark;
+    end
+    imgui.PushStyleColor(ImGuiCol_Button, bg);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, hovered);
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, pressed);
+    imgui.PushStyleColor(ImGuiCol_Border, theme.colors.border_gold or theme.colors.border or theme.border_gold);
+    return 4;
+end
+
+local function icon_tint_for_button(active)
+    if active then
+        return theme.colors.bg_dark or theme.bg_dark or { 0.05, 0.05, 0.08, 1.0 };
+    end
+    return theme.colors.text_light or theme.text_light or { 1, 1, 1, 1 };
+end
+
+local function read_vec2(a, b)
+    if type(a) == 'table' then
+        return a[1] or a.x or 0, a[2] or a.y or 0;
+    end
+    return a or 0, b or 0;
+end
+
+local function draw_icon_control_button(id, icon_name, size, active, preview, on_click)
+    local count = push_control_button_colors(active);
+    local clicked = imgui.Button('##' .. id, { size, size });
+    local a, b = imgui.GetItemRectMin();
+    local min_x, min_y = read_vec2(a, b);
+    a, b = imgui.GetItemRectMax();
+    local max_x, max_y = read_vec2(a, b);
+    local icon_pad = math.max(2, math.floor(size * 0.20 + 0.5));
+    local icon_size = math.max(8, (max_x - min_x) - (icon_pad * 2));
+    local draw_list = imgui.GetWindowDrawList();
+    if draw_list ~= nil then
+        ui.draw_asset_icon(
+            draw_list,
+            icon_name,
+            min_x + icon_pad,
+            min_y + icon_pad,
+            icon_size,
+            icon_tint_for_button(active)
+        );
+    end
+    imgui.PopStyleColor(count);
+    if clicked and not preview and on_click ~= nil then
+        on_click();
+    end
+end
+
+local function draw_control_cluster_at(x, y, btn_s, gap, preview)
+    local paused = M.is_paused();
+    imgui.SetCursorPos({ x, y });
+    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0);
+    imgui.PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0);
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { gap, 0 });
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 0, 0 });
+
+    draw_icon_control_button('fush_sess_play', 'session_play', btn_s, not paused, preview, M.resume_session);
+    imgui.SameLine();
+    draw_icon_control_button('fush_sess_pause', 'session_pause', btn_s, paused, preview, M.pause_session);
+    imgui.SameLine();
+    draw_icon_control_button('fush_sess_clear', 'session_clear', btn_s, false, preview, M.clear_session);
+
+    imgui.PopStyleVar(4);
+end
+
+-- Top info strip: Skill (left), Duration (right), compact controls beside duration.
+local function draw_info_header(skill_value, duration_text, show_controls, pad, layout_w, scale, preview)
+    if skill_value == nil and duration_text == nil and not show_controls then
+        return;
+    end
+
+    local line_h = imgui.GetTextLineHeight();
+    local row_gap = 1;
+    local label_y = imgui.GetCursorPosY();
+    local right_edge = layout_w - pad;
+    local btn_s, btn_gap, controls_w = control_cluster_metrics(scale);
+    local controls_x = show_controls and (right_edge - controls_w) or right_edge;
+
+    -- Controls alone: keep a single compact row.
+    if skill_value == nil and duration_text == nil then
+        draw_control_cluster_at(controls_x, label_y, btn_s, btn_gap, preview);
+        imgui.SetCursorPosY(label_y + btn_s + 6);
+        return;
+    end
+
+    local value_y = label_y + line_h + row_gap;
+    local block_h = (line_h * 2) + row_gap;
+    local meta_right = show_controls and (controls_x - 8) or right_edge;
+
+    if skill_value ~= nil then
+        imgui.SetCursorPos({ pad, label_y });
+        ui.text_outlined_colored('Skill', theme.colors.text_light);
+        imgui.SetCursorPos({ pad, value_y });
+        ui.text_outlined_colored(skill_value, theme.colors.text_gold);
+    end
+
+    if duration_text ~= nil then
+        local label_w = text_w('Duration');
+        local value_w = text_w(duration_text);
+        imgui.SetCursorPos({ meta_right - label_w, label_y });
+        ui.text_outlined_colored('Duration', theme.colors.text_light);
+        imgui.SetCursorPos({ meta_right - value_w, value_y });
+        ui.text_outlined_colored(duration_text, theme.colors.text_gold);
+    end
+
+    if show_controls then
+        local btn_y = label_y + math.max(0, (block_h - btn_s) * 0.5);
+        draw_control_cluster_at(controls_x, btn_y, btn_s, btn_gap, preview);
+    end
+
+    imgui.SetCursorPosY(value_y + line_h + 6);
+end
+
+-- Two related stat groups with shared column alignment and even vertical rhythm.
+local function draw_info_stat_groups(row1, row2, column_widths)
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4, 1 });
+    draw_stat_row('casts', row1.labels, row1.values, column_widths);
+    imgui.Dummy({ 0, 4 });
+    draw_stat_row('bites', row2.labels, row2.values, column_widths);
+    imgui.PopStyleVar(1);
 end
 
 local function gil_digit_right_x(pad, layout_w)
@@ -1203,6 +1468,17 @@ local function draw_money_row(label, amount, unit, draw_list, pad, settings, lay
     draw_aligned_gil(amount, unit, theme.colors.text_gold, pad, layout.width, true);
 end
 
+local function draw_section_separator(transparent)
+    local gap = math.max(1, math.floor(imgui.GetTextLineHeight() * 0.25 + 0.5));
+    imgui.Dummy({ 0, gap });
+    if not transparent then
+        imgui.PushStyleColor(ImGuiCol_Separator, theme.colors.border_gold or theme.colors.border);
+        imgui.Separator();
+        imgui.PopStyleColor(1);
+    end
+    imgui.Dummy({ 0, gap });
+end
+
 function M.render(settings, pricing, preview)
 
     if not settings.tracker.visible[1] and not preview then
@@ -1210,9 +1486,12 @@ function M.render(settings, pricing, preview)
     end
 
     if not preview then
-        local idle_secs = (ashita.time.clock()['ms'] - M.session.last_activity_ms) / 1000;
-        if M.session.last_activity_ms > 0 and idle_secs > settings.tracker.display_timeout[1] then
-            return;
+        local never_hide = settings.tracker.never_hide ~= nil and settings.tracker.never_hide[1] == true;
+        if not never_hide then
+            local idle_secs = (ashita.time.clock()['ms'] - M.session.last_activity_ms) / 1000;
+            if M.session.last_activity_ms > 0 and idle_secs > settings.tracker.display_timeout[1] then
+                return;
+            end
         end
     end
 
@@ -1238,11 +1517,16 @@ function M.render(settings, pricing, preview)
         local accuracy = M.get_accuracy(session);
         local net, gph = M.get_cached_gph(session, settings, pricing);
         local skill_current, skill_gain, skill_exact = M.get_skill_display(session, preview);
-        local skill_line = M.format_skill_line(skill_current, skill_gain, skill_exact);
+        local skill_value = M.format_skill_value(skill_current, skill_gain, skill_exact);
         local fish_bites = (session.small_fish_bites or 0) + (session.large_fish_bites or 0);
+        local want_duration = show_tracker_duration(settings);
+        local want_controls = show_tracker_controls(settings);
+        local duration_text = want_duration
+            and format.format_duration(M.get_elapsed_seconds(session))
+            or nil;
 
         local row1 = {
-            labels = { 'Casts', 'Bites', 'Accuracy' },
+            labels = { 'Casts', 'Bites', 'Bite Rate' },
             values = {
                 format.format_int(session.lines_cast),
                 format.format_int(session.hooks),
@@ -1259,27 +1543,13 @@ function M.render(settings, pricing, preview)
         };
 
         local layout = compute_tracker_layout(
-            session, pricing, settings, pad, net, gph, skill_line, row1, row2
+            session, pricing, settings, pad, net, gph, skill_value, row1, row2, duration_text, want_controls, scale
         );
         M.layout_w = layout.width;
         M.last_size.w = layout.width;
 
-        if skill_line ~= nil then
-            ui.text_outlined_colored(skill_line, theme.colors.text_gold);
-            imgui.Spacing();
-        end
-
-        draw_stat_row('row1', row1.labels, row1.values, layout.stat_widths);
-        imgui.Spacing();
-        draw_stat_row('row2', row2.labels, row2.values, layout.stat_widths);
-
-        if not transparent then
-            imgui.PushStyleColor(ImGuiCol_Separator, theme.colors.border_gold or theme.colors.border);
-            imgui.Separator();
-            imgui.PopStyleColor(1);
-        else
-            imgui.Spacing();
-        end
+        draw_info_header(skill_value, duration_text, want_controls, pad, layout.width, scale, preview);
+        draw_info_stat_groups(row1, row2, layout.stat_widths);
 
         local reward_names = T{};
         for name, _ in pairs(session.rewards) do
@@ -1288,13 +1558,11 @@ function M.render(settings, pricing, preview)
         table.sort(reward_names);
 
         local show_bait = should_show_bait(settings, session);
-        if #reward_names > 0 or show_bait then
-            if not transparent then
-                imgui.Separator();
-            else
-                imgui.Spacing();
-            end
+        local has_list = #reward_names > 0 or show_bait;
 
+        draw_section_separator(transparent);
+
+        if has_list then
             for _, name in ipairs(reward_names) do
                 local count = session.rewards[name];
                 local unit_price = tonumber(pricing[normalize_price_key(name)]) or 0;
@@ -1307,12 +1575,8 @@ function M.render(settings, pricing, preview)
                 local bait_spent = get_bait_spent(settings, session);
                 draw_catch_row('bait', bait_qty, -bait_spent, theme.colors.text_light, pad, layout);
             end
-        end
 
-        if not transparent then
-            imgui.Separator();
-        else
-            imgui.Spacing();
+            draw_section_separator(transparent);
         end
 
         draw_money_row('Net Gil', net, 'g', draw_list, pad, settings, layout);

@@ -59,7 +59,7 @@ end
 
 local MODULE_DEFAULTS = {
     bite = { scale = 1.0, padding = 8, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.8, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
-    tracker = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
+    tracker = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6, show_duration = false, show_controls = false },
     pool = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6, show_bookends = false, bookend_size = 10, bar_border_thickness = 0, no_bookend_rounding = 0 },
     ship = { scale = 1.0, padding = 6, bg_scale = 1.0, border_scale = 1.0, background_opacity = 0.60, border_opacity = 0.9, border_thickness = 0, panel_rounding = 6 },
 };
@@ -488,13 +488,23 @@ function M.draw_panel_drag(id, x_ref, y_ref, width, height, screen_x, screen_y)
         and mouse_y >= win_y and mouse_y <= (win_y + win_h);
 
     if hovering and imgui.IsMouseClicked(0) and (editor_open or is_shift_held()) then
-        active_drag = {
-            id = id,
-            start_mouse_x = mouse_x,
-            start_mouse_y = mouse_y,
-            start_x = x_ref[1],
-            start_y = y_ref[1],
-        };
+        -- Don't steal clicks from interactive widgets (e.g. session controls).
+        local item_busy = false;
+        if imgui.IsAnyItemHovered ~= nil then
+            item_busy = imgui.IsAnyItemHovered();
+        end
+        if not item_busy and imgui.IsAnyItemActive ~= nil then
+            item_busy = imgui.IsAnyItemActive();
+        end
+        if not item_busy then
+            active_drag = {
+                id = id,
+                start_mouse_x = mouse_x,
+                start_mouse_y = mouse_y,
+                start_x = x_ref[1],
+                start_y = y_ref[1],
+            };
+        end
     end
 
     if active_drag and active_drag.id == id then
@@ -610,6 +620,25 @@ function M.draw_arrow_icon(draw_list, x, y, width, height, tint)
         col = imgui.GetColorU32(tint);
     end
     draw_list:AddImage(ptr, { x, y }, { x + width, y + height }, { 0, 0 }, { 1, 1 }, col);
+    return true;
+end
+
+-- Draw a square icon from assets/<name>.png (e.g. session_play).
+-- tint: optional ImGui vec4; defaults to white.
+function M.draw_asset_icon(draw_list, name, x, y, size, tint)
+    if draw_list == nil or name == nil or name == '' or size == nil or size <= 0 then
+        return false;
+    end
+    local tex = TextureManager.getFileTexture(name);
+    local ptr = TextureManager.getTexturePtr(tex);
+    if ptr == nil then
+        return false;
+    end
+    local col = IM_COL32_WHITE;
+    if tint ~= nil then
+        col = imgui.GetColorU32(tint);
+    end
+    draw_list:AddImage(ptr, { x, y }, { x + size, y + size }, { 0, 0 }, { 1, 1 }, col);
     return true;
 end
 
