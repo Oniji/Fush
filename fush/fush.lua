@@ -1,337 +1,180 @@
 --[[
-
 * Fush - HorizonXI fishing companion
-
 *
-
 * Bite/feeling overlay, session tracker, pool resupply bar, and ship schedules.
-
 *
-
 * UI rendering and assets adapted from XIUI (https://github.com/tirem/XIUI)
-
 * under the GNU General Public License v3.0. See fush/THIRD_PARTY_NOTICES.md.
-
 ]]--
 
-
-
 addon.name = 'fush';
-
 addon.author = 'Saraji';
-
-addon.version = '0.4.0';
-
+addon.version = '0.4.1';
 addon.desc = 'Fishing bite tracker, session stats, pool resupply, and ship schedules. UI adapted from XIUI (GPLv3).';
-
-addon.link = 'https://github.com/casme/Fush';
-
+addon.link = 'https://github.com/Oniji/Fush';
 addon.commands = { '/fush' };
 
-
-
 require('common');
-
 local chat = require('chat');
-
 local settings = require('settings');
 
-
-
 local config = require('config');
-
 local ui = require('libs.ui');
-
 local fonts = require('libs.fonts');
-
 local game = require('libs.game');
-
 local bite = require('modules.bite');
-
 local tracker = require('modules.tracker');
-
 local pool = require('modules.pool');
-
 local ship = require('modules.ship');
 
-
-
 local function print_help(is_error)
-
     if is_error then
-
         print(chat.header(addon.name):append(chat.error('Invalid command.')));
-
     else
-
         print(chat.header(addon.name):append(chat.message('Commands:')));
-
     end
 
-
-
     local cmds = T{
-
         { '/fush', 'Toggle the config window.' },
-
         { '/fush config', 'Toggle the config window.' },
-
         { '/fush report', 'Print session stats to chat.' },
-
         { '/fush clear', 'Clear the current session.' },
-
         { '/fush show', 'Show enabled panels.' },
-
         { '/fush hide', 'Hide all panels.' },
-
         { '/fush ship', 'Enable or disable the Ship Tracker.' },
-
         { '/fush save', 'Save settings.' },
-
         { '/fush reload', 'Reload settings.' },
-
     };
 
-
-
     cmds:ieach(function (v)
-
         print(chat.header(addon.name)
-
             :append(chat.error('Usage: '))
-
             :append(chat.message(v[1]))
-
             :append(' - ')
-
             :append(chat.color1(6, v[2])));
-
     end);
-
 end
 
-
-
 ashita.events.register('load', 'load_cb', function ()
-
     config.ensure_ui_settings();
-
     ui.bind(config.settings, config.editor_open);
-
     config.update_pricing();
-
     tracker.refresh_player_name();
     -- Bind restores this character's session/skill from settings.
     tracker.bind_skill_settings(config.settings);
     fonts.prewarm();
 
     if config.settings.reset_on_load[1] then
-
         tracker.reset_session();
-
         bite.reset();
-
     end
-
 end);
-
-
 
 ashita.events.register('unload', 'unload_cb', function ()
-
     tracker.persist_session();
-
     tracker.flush_fishing_skill();
-
     ui.cleanup();
-
     settings.save();
-
 end);
 
-
-
 ashita.events.register('command', 'command_cb', function (e)
-
     local args = e.command:args();
-
     if #args == 0 or not args[1]:any('/fush') then
-
         return;
-
     end
-
-
 
     e.blocked = true;
 
-
-
     if #args == 1 or args[2]:any('config', 'edit') then
-
         config.editor_open[1] = not config.editor_open[1];
-
         return;
-
     end
-
-
 
     if args[2]:any('save') then
-
         config.update_pricing();
-
         settings.save();
-
         print(chat.header(addon.name):append(chat.message('Settings saved.')));
-
         return;
-
     end
-
-
 
     if args[2]:any('reload') then
-
         settings.reload();
-
         config.ensure_ui_settings();
-
         ui.bind(config.settings, config.editor_open);
-
         config.update_pricing();
-
         print(chat.header(addon.name):append(chat.message('Settings reloaded.')));
-
         return;
-
     end
-
-
 
     if args[2]:any('report') then
-
         print(tracker.build_report(config.settings, config.pricing));
-
         return;
-
     end
-
-
 
     if args[2]:any('clear') then
-
         tracker.reset_session();
-
         bite.reset();
-
         print(chat.header(addon.name):append(chat.message('Session cleared for this character.')));
-
         return;
-
     end
 
-
-
     if args[2]:any('show') then
-
         if config.settings.panels_hidden == nil then
             config.settings.panels_hidden = T{ false };
         end
         config.settings.panels_hidden[1] = false;
-
         tracker.touch_activity();
-
         return;
-
     end
 
-
-
     if args[2]:any('hide') then
-
         if config.settings.panels_hidden == nil then
             config.settings.panels_hidden = T{ false };
         end
         config.settings.panels_hidden[1] = true;
-
         return;
-
     end
-
-
 
     if args[2]:any('ship') then
-
-        -- Same as General → Ship Tracker checkbox (enable/disable), not show/hide.
+        -- Same as General -> Ship Tracker checkbox (enable/disable), not show/hide.
         config.settings.ship.visible[1] = not config.settings.ship.visible[1];
-
         local state = config.settings.ship.visible[1] and 'enabled' or 'disabled';
-
         print(chat.header(addon.name):append(chat.message('Ship Tracker ' .. state .. '.')));
-
         return;
-
     end
-
-
 
     print_help(true);
-
 end);
-
-
 
 ashita.events.register('text_in', 'text_in_cb', function (e)
-
     local event_type, hook_type = bite.handle_text(e);
-
     if event_type == 'hook' then
-
         tracker.record_hook(hook_type);
-
     end
-
     tracker.handle_text(e, bite, config.pricing);
-
 end);
 
-
-
 ashita.events.register('packet_in', 'packet_in_cb', function (e)
-
     bite.handle_packet(e);
     tracker.handle_packet_in(e);
 
+    -- 0x00A zone enter: name + craft skill can be stale until this lands.
     if e.id == 0x00A then
         tracker.refresh_player_name();
         tracker.restore_fishing_skill();
     end
-
 end);
-
-
 
 ashita.events.register('packet_out', 'packet_out_cb', function (e)
-
     tracker.handle_packet_out(e);
-
 end);
 
-
-
 ashita.events.register('d3d_present', 'present_cb', function ()
-
     if not AshitaCore:GetFontManager():GetVisible() then
-
         return;
-
     end
 
-
-
     ui.present_frame_start();
-
     tracker.tick_autosave();
 
     -- Config stays on Ashita's default ImGui font (Agave ~18px).
@@ -342,19 +185,11 @@ ashita.events.register('d3d_present', 'present_cb', function ()
     -- Hide overlays on title / character select. LoginStatus 2 stays true
     -- during zone transitions even when the player entity is briefly nil.
     if config.panels_are_shown() and game.is_logged_in() then
-
         bite.render(config.settings, config.editor_open[1] and config.settings.bite.visible[1]);
-
         tracker.render(config.settings, config.pricing, config.editor_open[1] and config.settings.tracker.visible[1]);
-
         pool.render(config.settings);
-
         ship.render(config.settings);
-
     end
 
     fonts.pop();
-
 end);
-
-

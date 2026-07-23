@@ -39,8 +39,12 @@ local BASE_H_PAD = 12;
 local BASE_V_PAD = 5;
 
 local function clamp01(v)
-    if v < 0 then return 0; end
-    if v > 1 then return 1; end
+    if v < 0 then
+        return 0;
+    end
+    if v > 1 then
+        return 1;
+    end
     return v;
 end
 
@@ -68,6 +72,7 @@ local function color_to_u32(hex_or_vec, alpha)
     local g = math.floor(clamp01(col[2] or 1) * 255 + 0.5);
     local b = math.floor(clamp01(col[3] or 1) * 255 + 0.5);
     local a = math.floor(clamp01(alpha or col[4] or 0.92) * 255 + 0.5);
+    -- IM_COL32 packs as ABGR in memory.
     return bit.bor(bit.lshift(a, 24), bit.lshift(b, 16), bit.lshift(g, 8), r);
 end
 
@@ -91,6 +96,7 @@ function M.is_fish_hook()
     return M.state.hook == 'Small Fish' or M.state.hook == 'Large Fish';
 end
 
+--- Match HOOK_MESSAGES / FEEL_MESSAGES; sets chat logcolor and overlay state.
 function M.handle_text(e)
     if e.injected then
         return nil;
@@ -122,6 +128,7 @@ function M.handle_text(e)
     return nil;
 end
 
+--- Clear overlay on zone (0x00A) or when status packet says not fishing.
 function M.handle_packet(e)
     local constants = require('constants');
 
@@ -131,6 +138,7 @@ function M.handle_packet(e)
     end
 
     if e.id == constants.PACKET_STATUS then
+        -- 0x037 status byte at +0x30: 0 = idle / not fishing.
         if struct.unpack('B', e.data, 0x30 + 1) == 0 then
             M.deactivate();
         end
@@ -207,6 +215,7 @@ local function draw_half(draw_list, x, y, w, h, color_hex, text, scale, rounding
     );
 end
 
+--- Split hook | feel bar; stored X is the seam between halves.
 function M.render(settings, preview)
     if not settings.bite.visible[1] and not preview then
         return;
@@ -221,7 +230,7 @@ function M.render(settings, preview)
     -- Stored X is the shared seam between left/right halves.
     local seam_x = settings.bite.x[1];
     local y = settings.bite.y[1];
-    -- Includes Appearance Scale × Font Size scale so panel + text grow together.
+    -- Appearance Scale x Font Size scale so panel + text grow together.
     local scale = ui.get_module_scale(settings, 'bite');
     local h_pad = math.max(BASE_H_PAD, ui.get_padding(settings, 'bite')) * scale;
     local v_pad = math.max(BASE_V_PAD, math.floor(ui.get_padding(settings, 'bite') * 0.45)) * scale;

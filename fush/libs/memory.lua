@@ -1,6 +1,8 @@
 --[[
 * Memory utilities (adapted from XIUI)
-* https://github.com/tirem/XIUI — GNU GPL v3
+* https://github.com/tirem/XIUI - GNU GPL v3
+*
+* Thin cache around the D3D8 device pointer used by texture loading.
 ]]--
 
 local d3d = require('d3d8');

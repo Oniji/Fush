@@ -2,9 +2,9 @@
 * Fush - Client login / world state helpers
 *
 * Ashita GetLoginStatus():
-*   2 = logged into the game world (includes brief zone transitions
-*       when GetPlayerEntity() may be nil)
-*   other values = title screen / character select / not in world
+*   2 = in the game world (also true during brief zone loads when
+*       GetPlayerEntity() may be nil)
+*   anything else = title / char select / not ready
 ]]--
 
 local M = {};
@@ -25,8 +25,7 @@ function M.get_login_status()
     return status;
 end
 
--- True while in the game world. Stays true during inter-zone loads even if
--- player entity / craft APIs are temporarily unavailable.
+-- True while in world. Stays true across zone loads even if craft APIs blip.
 function M.is_logged_in()
     return M.get_login_status() == LOGIN_STATUS_INGAME;
 end

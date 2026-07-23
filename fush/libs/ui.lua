@@ -1,6 +1,6 @@
 --[[
-* Fush UI bridge — XIUI rendering wrappers
-* https://github.com/tirem/XIUI — GNU GPL v3
+* Fush UI bridge - XIUI rendering wrappers
+* https://github.com/tirem/XIUI - GNU GPL v3
 ]]--
 
 require('common');
@@ -72,6 +72,7 @@ local function module_settings(settings, module_name)
     return module_cfg, defaults;
 end
 
+-- Wire settings + editor-open flag; also feeds progressbar style from pool UI.
 function M.bind(settings, editor_open_ref)
     current_settings = settings;
     editor_open = editor_open_ref;
@@ -106,6 +107,7 @@ function M.bind(settings, editor_open_ref)
     end);
 end
 
+-- Theme + free any textures queued for release this frame.
 function M.present_frame_start()
     theme.set_active(get_theme_name(current_settings));
     TextureManager.FlushPendingReleases();
@@ -449,6 +451,7 @@ local function is_shift_held()
     return io ~= nil and io.KeyShift == true;
 end
 
+-- Invisible drag hitbox; writes back into x_ref/y_ref tables.
 function M.draw_panel_drag(id, x_ref, y_ref, width, height, screen_x, screen_y)
     local editor_open = M.is_editor_open();
     local dragging_this = active_drag ~= nil and active_drag.id == id;

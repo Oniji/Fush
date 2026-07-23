@@ -128,6 +128,7 @@ end
 apply_palette(M.palettes.OceanBlue);
 M.active_name = 'OceanBlue';
 
+--- Switch active palette used by overlays and the config window.
 function M.set_active(theme_name)
     local palette = M.palettes[theme_name];
     if palette == nil then
@@ -155,6 +156,7 @@ function M.hex_to_imgui(hex)
     };
 end
 
+--- Push ImGui colors/vars for the config editor; pair with pop_style.
 function M.apply_style()
     local style = imgui.GetStyle();
     style.WindowBorderSize = 1;

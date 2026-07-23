@@ -1,6 +1,6 @@
 --[[
 * Color utilities (adapted from XIUI)
-* https://github.com/tirem/XIUI — GNU GPL v3
+* https://github.com/tirem/XIUI - GNU GPL v3
 ]]--
 
 local M = {};

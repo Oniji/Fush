@@ -4,6 +4,7 @@
 
 local M = {};
 
+--- Integer with thousands separators (e.g. 1234 -> "1,234").
 function M.format_int(number)
     if number == nil or number == '' then
         return '0';
@@ -29,6 +30,7 @@ function M.format_percent(value)
     return string.format('%.1f%%', value or 0);
 end
 
+--- Gil/hour from net gil and elapsed session seconds.
 function M.format_gph(total_gil, elapsed_seconds)
     if elapsed_seconds == nil or elapsed_seconds <= 0 then
         return 0;

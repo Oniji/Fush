@@ -6,6 +6,7 @@ local constants = require('constants');
 
 local M = {};
 
+-- Signature scan into FFXiMain.dll for the Vana'diel clock pointer.
 local vana_pattern = 'B0015EC390518B4C24088D4424005068';
 local UNITS_PER_DAY = 3456;
 local UNITS_PER_HOUR = 144;
@@ -29,6 +30,7 @@ function M.get_timestamp()
         return { day = 0, hour = 0, minute = 0, raw = 0, day_progress = 0, day_units = 0 };
     end
 
+    -- +0x34 -> time struct; +0x0C raw counter (offset matches common Ashita snippets).
     local pointer = ashita.memory.read_uint32(p_vana_time + 0x34);
     local raw_time = ashita.memory.read_uint32(pointer + 0x0C) + 92514960;
     local day_units = raw_time % UNITS_PER_DAY;
@@ -56,7 +58,7 @@ function M.format_time(timestamp)
 end
 
 -- Lunar cycle is 84 Vana'diel days. Matches common Ashita / LSB moon math:
--- (day + 26) % 84 → 0..42 waning Full→New, 42..84 waxing New→Full.
+-- (day + 26) % 84 -> 0..42 waning Full->New, 42..84 waxing New->Full.
 function M.get_moon(timestamp)
     local daysmod = ((timestamp.day or 0) + 26) % 84;
     local percent;

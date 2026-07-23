@@ -88,6 +88,7 @@ local function trim_line(s)
     return s;
 end
 
+--- Lowercased party slot 0 name; used to match catch chat lines.
 function M.refresh_player_name()
     local name = AshitaCore:GetMemoryManager():GetParty():GetMemberName(0);
     if name ~= nil and name ~= '' then
@@ -157,10 +158,8 @@ function M.reset_rate_cache()
     M.rate_cache.last_update_ms = 0;
 end
 
--- Wipe live session runtime state without writing settings.
--- Used when binding a different character's settings table.
--- preserve_skill: keep exact fishing skill (session clear); character binds
--- must leave this false so another character's skill cannot leak.
+--- Wipe live session state (no disk write). preserve_skill keeps exact tenths
+--- across session clear; character binds must pass false so skill cannot leak.
 function M.clear_session_memory(preserve_skill)
     M.session.lines_cast = 0;
     M.session.bait_used = 0;
@@ -193,8 +192,8 @@ function M.clear_session_memory(preserve_skill)
     M.reset_rate_cache();
 end
 
--- Rebind to the active character settings (Ashita switches tables on login).
--- Always clears in-memory session first so another character's data cannot leak.
+--- Rebind to the active character settings table (Ashita swaps on login).
+--- Clears memory first so another character's data cannot leak.
 function M.bind_skill_settings(settings_ref)
     M.skill_settings = settings_ref;
     M.clear_session_memory(false);
@@ -205,6 +204,7 @@ function M.bind_skill_settings(settings_ref)
     M.refresh_player_name();
 end
 
+--- Whole-level craft skill from memory (tenths come from 0x029 / chat).
 function M.get_fishing_skill_int()
     local ok, skill = pcall(function()
         local player = AshitaCore:GetMemoryManager():GetPlayer();
@@ -282,6 +282,7 @@ local function clear_exact_skill(skill_int)
     end
 end
 
+--- Write fishing_skill into the bound settings; debounced unless force.
 function M.persist_fishing_skill(force)
     if M.skill_settings == nil or M.skill_settings.fishing_skill == nil then
         return;
@@ -334,8 +335,7 @@ function M.flush_fishing_skill()
     end
 end
 
--- Call once per frame from d3d_present. Cheap no-op unless session is dirty
--- and SESSION_AUTOSAVE_MS has elapsed since the last disk write.
+--- Per-frame autosave from d3d_present when session is dirty.
 function M.tick_autosave()
     if not M.session_dirty then
         return;
@@ -432,6 +432,7 @@ local function session_has_data()
     return false;
 end
 
+--- Snapshot live session into settings.session_snapshot (no immediate save).
 function M.persist_session()
     local snap = ensure_session_snapshot();
     if snap == nil then
@@ -497,6 +498,7 @@ function M.persist_session()
     snap.rewards = rewards;
 end
 
+--- Load session_snapshot back into M.session after a character bind.
 function M.restore_session()
     local snap = ensure_session_snapshot();
     if snap == nil or not snap.active[1] then
@@ -572,6 +574,7 @@ function M.restore_session()
     return true;
 end
 
+--- Adopt stored exact skill or a usable API integer after bind / zone.
 function M.restore_fishing_skill()
     local skill_int = M.get_fishing_skill_int();
     local api_ok = api_skill_usable(skill_int);
@@ -618,8 +621,8 @@ function M.restore_fishing_skill()
     end
 end
 
--- Memory only exposes whole levels; fractional tenths come from 0x029 / chat.
--- Whole-rank chat/packets are what make tenths "exact"; API alone never does.
+--- Display skill: exact (int + tenths) when trusted, else whole API level.
+--- Memory alone never makes tenths exact; that needs 0x029 / chat.
 function M.get_fishing_skill()
     local skill_int = M.get_fishing_skill_int();
     local api_ok = api_skill_usable(skill_int);
@@ -664,6 +667,7 @@ function M.get_fishing_skill()
     return nil;
 end
 
+--- Add skill tenths from packet/chat; caps at 0.9 until a whole-rank tick.
 function M.add_fishing_frac(delta)
     if delta == nil or delta <= 0 then
         return;
@@ -684,8 +688,8 @@ function M.add_fishing_frac(delta)
     end
 end
 
+--- Whole-level tick from chat/packet; always the new exact source of truth.
 function M.on_fishing_skill_tick(new_int)
-    -- Whole-level tick from chat/packet is always the new source of truth.
     local tick_int = tonumber(new_int);
     if tick_int == nil then
         tick_int = M.get_fishing_skill_int();
@@ -760,9 +764,8 @@ function M.format_skill_value(current, gain, exact)
     return value;
 end
 
+--- Clear session stats for the bound character; keeps exact fishing skill.
 function M.reset_session()
-    -- Only clears/saves the currently bound character's settings.
-    -- Preserve exact fishing skill across session clears.
     M.clear_session_memory(true);
     if not M.session.skill_exact then
         M.restore_fishing_skill();
@@ -776,6 +779,7 @@ function M.reset_session()
     settings.save();
 end
 
+--- Net gil plus gph, with RATE_UPDATE_MS cache so Rate does not jitter every frame.
 function M.get_cached_gph(session, settings, pricing)
     local net = M.get_net_gil(session, settings, pricing);
     local now = ashita.time.clock()['ms'];
@@ -796,6 +800,7 @@ function M.touch_activity()
     M.session.last_activity_ms = ashita.time.clock()['ms'];
 end
 
+--- Outgoing fishing start (0x01A action 0x0E).
 function M.record_cast()
     M.touch_activity();
     M.ensure_skill_start();
@@ -812,6 +817,7 @@ function M.record_cast()
     mark_session_dirty();
 end
 
+--- Bite of any type; also increments bait_used.
 function M.record_hook(hook_type)
     M.touch_activity();
     M.session.hooks = M.session.hooks + 1;
@@ -845,11 +851,11 @@ function M.is_priced_item(item_name, pricing)
     return pricing[normalize_price_key(item_name)] ~= nil;
 end
 
+--- Catch only if the item exists in the Tracker price list.
 function M.record_catch(item_name, hook_type, pricing)
     M.touch_activity();
     hook_type = hook_type or M.session.current_hook;
 
-    -- Only track catches that exist in the Tracker item/price list.
     if not M.is_priced_item(item_name, pricing) then
         M.session.current_hook = nil;
         return;
@@ -908,6 +914,7 @@ function M.get_total_worth(session, pricing)
     return total;
 end
 
+--- Catch worth minus bait cost when subtract_bait is on (lure mode skips bait).
 function M.get_net_gil(session, settings, pricing)
     local total = M.get_total_worth(session, pricing);
     if settings.tracker.subtract_bait[1] and not settings.tracker.use_lure[1] then
@@ -916,6 +923,7 @@ function M.get_net_gil(session, settings, pricing)
     return total;
 end
 
+--- Active session seconds (pause time excluded) for Rate/gph.
 function M.get_elapsed_seconds(session)
     session = session or M.session;
     if session.first_cast_ms == nil or session.first_cast_ms == 0 then
@@ -938,11 +946,11 @@ function M.is_paused(session)
     return session.paused == true;
 end
 
+--- Freeze elapsed for Rate; safe before first cast (Rate stays 0).
 function M.pause_session()
     if M.session.paused then
         return;
     end
-    -- No timer yet — nothing to pause, but still mark paused so Rate stays at 0.
     M.session.paused = true;
     M.session.pause_started_ms = ashita.time.clock()['ms'];
     M.touch_activity();
@@ -971,6 +979,7 @@ function M.clear_session()
     M.touch_activity();
 end
 
+--- Incoming 0x029 skillup: MessageNum at +0x18, skill id +0x0C, value +0x10.
 function M.handle_packet_in(e)
     if e.id ~= constants.PACKET_MESSAGE then
         return;
@@ -1003,6 +1012,7 @@ function M.handle_packet_in(e)
     end
 end
 
+--- Catch / lost / broken chat, plus skill chat fallback if packet_in missed it.
 function M.handle_text(e, bite, pricing)
     if e.injected then
         return;
@@ -1110,6 +1120,7 @@ function M.handle_text(e, bite, pricing)
     end
 end
 
+--- Outgoing 0x01A; action field at +0x0A (0x0E = start fishing).
 function M.handle_packet_out(e)
     if e.id ~= constants.PACKET_ACTION then
         return;
@@ -1125,6 +1136,7 @@ function M.build_report(settings, pricing)
     return M.build_report_for(M.session, settings, pricing);
 end
 
+--- Plain-text session summary for /fush report.
 function M.build_report_for(session, settings, pricing)
     local elapsed = M.get_elapsed_seconds(session);
     local accuracy = M.get_accuracy(session);
@@ -1211,7 +1223,7 @@ local function draw_stat_row(row_id, labels, values, column_widths, colors)
 end
 
 -- Reserve space for the longest unit ("gph") so ones-digits share one column
--- across catch totals, Net Gil (…g), and Rate (…gph).
+-- across catch totals, Net Gil (...g), and Rate (...gph).
 local GIL_UNIT_RESERVE = 'gph';
 local GIL_UNIT_GAP = 3;
 
@@ -1235,7 +1247,7 @@ local function control_cluster_metrics(scale)
     return btn_s, gap, (btn_s * 3) + (gap * 2);
 end
 
--- Content-measured width only — never GetWindowWidth(), or AlwaysAutoResize
+-- Content-measured width only - never GetWindowWidth(), or AlwaysAutoResize
 -- feedback will stretch the panel forever as right-aligned gil runs away.
 local function compute_tracker_layout(session, pricing, settings, pad, net, gph, skill_value, row1, row2, duration_line, show_controls, scale)
     local max_num_w = math.max(text_w(format.format_int(net)), text_w(format.format_int(gph)));
@@ -1479,8 +1491,8 @@ local function draw_section_separator(transparent)
     imgui.Dummy({ 0, gap });
 end
 
+--- Session panel: skill/duration header, bite stats, catches, Net Gil / Rate.
 function M.render(settings, pricing, preview)
-
     if not settings.tracker.visible[1] and not preview then
         return;
     end

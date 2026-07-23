@@ -2,7 +2,7 @@
 * Fush - Overlay font helpers
 *
 * Loads bundled fonts from fush/assets/fonts/ via imgui.AddFontFromFileTTF
-* (same approach as XIUI). Fonts are prewarmed on load — never added mid-frame.
+* (same approach as XIUI). Fonts are prewarmed on load - never added mid-frame.
 ]]--
 
 require('common');
@@ -51,7 +51,7 @@ function M.get_size(settings)
     return 13;
 end
 
--- Call after PushFont. Returns scale so on-screen glyphs match Font Size.
+-- Call after PushFont. Scale so on-screen size matches the Font Size setting.
 function M.get_scale(settings)
     local desired = M.get_size(settings);
     local base = imgui.GetFontSize();
@@ -137,6 +137,7 @@ end
 
 -- Call from addon load (NOT from d3d_present). Mutating the ImGui font atlas
 -- mid-frame can crash Ashita (see XIUI imtext.PrewarmFonts).
+-- Load every bundled TTF once at addon load (AddFontFromFileTTF is unsafe mid-frame).
 function M.prewarm()
     if prewarmed then
         return;
@@ -150,6 +151,7 @@ function M.prewarm()
     end
 end
 
+-- Push the chosen TTF at BASE_SIZE; callers scale with get_scale.
 function M.push(settings)
     if pushed then
         return;

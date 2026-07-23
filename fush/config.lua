@@ -1,59 +1,34 @@
 --[[
-
 * Fush - Configuration UI and settings
-
 *
-
 * UI rendering adapted from XIUI (https://github.com/tirem/XIUI), GPLv3.
-
 * See THIRD_PARTY_NOTICES.md for attribution details.
-
 ]]--
 
-
-
 require('common');
-
 local chat = require('chat');
-
 local imgui = require('imgui');
-
 local settings = require('settings');
-
 local theme = require('libs.theme');
-
 local ui = require('libs.ui');
-
 local fonts = require('libs.fonts');
-
 local attribution = require('libs.attribution');
-
 local tracker = require('modules.tracker');
-
 local bite = require('modules.bite');
-
-
 
 local M = {};
 
-
-
 M.default_settings = T{
-
     font_size = T{ 13 },
-
     reset_on_load = T{ false },
-
     -- /fush hide sets this; /fush show clears it. Does not change module enable checkboxes.
     panels_hidden = T{ false },
-
     -- Last known fishing skill. `exact` becomes true after observing a whole-level
     -- tick (tenths are then trustworthy). level is stored as e.g. 66.4.
     fishing_skill = T{
         exact = T{ false },
         level = T{ 0 },
     },
-
     -- Survives /addon reload unless Reset Session On Load is enabled.
     session_snapshot = T{
         active = T{ false },
@@ -76,7 +51,6 @@ M.default_settings = T{
         skill_start = T{ -1 },
         rewards = T{},
     },
-
     ui = T{
         background_theme = T{ 'OceanBlue' },
         font_family = T{ 'Tahoma Bold (Default)' },
@@ -139,46 +113,24 @@ M.default_settings = T{
         notch_color = T{ '#F2D159' },
         notch_passed_color = T{ '#738299' },
     },
-
-
-
     bite = T{
-
         visible = T{ true },
-
         font_scale = T{ 1.0 },
-
         x = T{ 20 },
-
         y = T{ 120 },
-
     },
-
-
-
     tracker = T{
-
         visible = T{ true },
-
         font_scale = T{ 1.0 },
-
         x = T{ 20 },
-
         y = T{ 320 },
-
         display_timeout = T{ 600 },
-
         never_hide = T{ false },
-
         bait_cost = T{ 1 },
-
         subtract_bait = T{ false },
-
         use_lure = T{ false },
-
         -- Per-fish pricing mode: "name:vendor|ah|highest" (default ah when absent).
         item_price_modes = T{},
-
         item_index = T{
             'abaia:1920',
             'ahtapot:700',
@@ -351,42 +303,22 @@ M.default_settings = T{
             'zafmlug bass:31',
             'zebra eel:385',
         },
-
     },
-
-
-
     pool = T{
-
         visible = T{ true },
-
         font_scale = T{ 1.0 },
-
         x = T{ 20 },
-
         y = T{ 520 },
-
         width = T{ 360 },
-
         height = T{ 14 },
-
     },
-
     ship = T{
-
         visible = T{ true },
-
         font_scale = T{ 1.0 },
-
         x = T{ 20 },
-
         y = T{ 620 },
-
     },
-
 };
-
-
 
 M.settings = settings.load(M.default_settings);
 
@@ -408,16 +340,11 @@ M.price_ui = {
 
 ui.bind(M.settings, M.editor_open);
 
-
-
+-- Soft-upgrade older saves: fill missing ui keys, migrate flat -> per-module, lock removed knobs.
 function M.ensure_ui_settings()
-
     if M.settings.ui == nil then
-
         M.settings.ui = T{};
-
     end
-
     if M.settings.font_size == nil then
         M.settings.font_size = T{ 13 };
     else
@@ -426,9 +353,6 @@ function M.ensure_ui_settings()
         if size > 30 then size = 30; end
         M.settings.font_size[1] = math.floor(size + 0.5);
     end
-
-
-
     local defaults = M.default_settings.ui;
 
     local function ensure_ui_section(section_name)
@@ -452,16 +376,13 @@ function M.ensure_ui_settings()
         { old = 'border_thickness', new = 'border_thickness' },
         { old = 'panel_rounding', new = 'panel_rounding' },
     };
-
     ensure_ui_section('bite');
     ensure_ui_section('tracker');
     ensure_ui_section('pool');
     ensure_ui_section('ship');
-
     if M.settings.ui.font_family == nil then
         M.settings.ui.font_family = T{ 'Tahoma Bold (Default)' };
     end
-
     for _, map in ipairs(legacy_map) do
         if M.settings.ui[map.old] ~= nil then
             if M.settings.ui.bite[map.new] == nil then M.settings.ui.bite[map.new] = M.settings.ui[map.old]; end
@@ -470,7 +391,6 @@ function M.ensure_ui_settings()
             if M.settings.ui.ship[map.new] == nil then M.settings.ui.ship[map.new] = M.settings.ui[map.old]; end
         end
     end
-
     local legacy_pool_map = {
         { old = 'show_bookends', new = 'show_bookends' },
         { old = 'bookend_size', new = 'bookend_size' },
@@ -497,17 +417,14 @@ function M.ensure_ui_settings()
             module_cfg[key][1] = value;
         end
     end
-
     lock(M.settings.ui.bite, 'padding', 8);
     lock(M.settings.ui.bite, 'bg_scale', 1.0);
     lock(M.settings.ui.bite, 'border_scale', 1.0);
     lock(M.settings.ui.bite, 'panel_rounding', 6);
-
     lock(M.settings.ui.tracker, 'padding', 6);
     lock(M.settings.ui.tracker, 'bg_scale', 1.0);
     lock(M.settings.ui.tracker, 'border_scale', 1.0);
     lock(M.settings.ui.tracker, 'panel_rounding', 6);
-
     lock(M.settings.ui.pool, 'padding', 6);
     lock(M.settings.ui.pool, 'bg_scale', 1.0);
     lock(M.settings.ui.pool, 'border_scale', 1.0);
@@ -515,12 +432,10 @@ function M.ensure_ui_settings()
     lock(M.settings.ui.pool, 'show_bookends', false);
     lock(M.settings.ui.pool, 'bar_border_thickness', 0);
     lock(M.settings.ui.pool, 'no_bookend_rounding', 0);
-
     lock(M.settings.ui.ship, 'padding', 6);
     lock(M.settings.ui.ship, 'bg_scale', 1.0);
     lock(M.settings.ui.ship, 'border_scale', 1.0);
     lock(M.settings.ui.ship, 'panel_rounding', 6);
-
     for key, value in pairs(defaults) do
         if type(value) ~= 'table' or (key ~= 'bite' and key ~= 'tracker' and key ~= 'pool' and key ~= 'ship') then
             if M.settings.ui[key] == nil then
@@ -528,14 +443,13 @@ function M.ensure_ui_settings()
             end
         end
     end
-
 end
 
+-- Copy missing module keys from defaults (never overwrites existing saved values).
 local function ensure_module_settings(module_name)
     if M.settings[module_name] == nil then
         M.settings[module_name] = T{};
     end
-
     local defaults = M.default_settings[module_name];
     for key, value in pairs(defaults) do
         if M.settings[module_name][key] == nil then
@@ -544,18 +458,14 @@ local function ensure_module_settings(module_name)
     end
 end
 
-
-
 M.ensure_ui_settings();
 ensure_module_settings('bite');
 ensure_module_settings('tracker');
 ensure_module_settings('pool');
 ensure_module_settings('ship');
-
 if M.settings.panels_hidden == nil then
     M.settings.panels_hidden = T{ false };
 end
-
 if M.settings.fishing_skill == nil then
     M.settings.fishing_skill = T{
         exact = T{ false },
@@ -581,8 +491,6 @@ function M.panels_are_shown()
     return not M.settings.panels_hidden[1];
 end
 
-
-
 local function trim_line(s)
     if s == nil then
         return '';
@@ -593,21 +501,15 @@ local function trim_line(s)
     return s;
 end
 
-
-
 local function split(input, sep)
-
     local result = T{};
-
     for part in string.gmatch(input, '([^' .. sep .. ']+)') do
         part = trim_line(part);
         if part ~= '' then
             result:append(part);
         end
     end
-
     return result;
-
 end
 
 local PRICE_MODES = {
@@ -624,6 +526,7 @@ local function normalize_mode(mode)
     return 'ah';
 end
 
+-- Persisted as "name:vendor|ah|highest" lines; absent => AH (or vendor if no AH).
 local function ensure_price_modes()
     if M.settings.tracker.item_price_modes == nil then
         M.settings.tracker.item_price_modes = T{};
@@ -631,6 +534,7 @@ local function ensure_price_modes()
     return M.settings.tracker.item_price_modes;
 end
 
+-- Build lower_name -> mode from item_price_modes.
 local function load_mode_map()
     local map = {};
     for _, entry in ipairs(ensure_price_modes()) do
@@ -692,26 +596,21 @@ local function parse_price_line(entry)
     if entry == '' then
         return nil, nil, nil, false;
     end
-
     local parts = T{};
     for part in string.gmatch(entry, '([^:]+)') do
         parts:append(trim_line(part));
     end
-
     if #parts < 2 or #parts > 3 then
         return nil, nil, nil, false;
     end
-
     local name = parts[1];
     if name == nil or name == '' then
         return nil, nil, nil, false;
     end
-
     local vendor = tonumber(parts[2]);
     if vendor == nil then
         return nil, nil, nil, false;
     end
-
     local ah = nil;
     if #parts == 3 then
         ah = tonumber(parts[3]);
@@ -719,7 +618,6 @@ local function parse_price_line(entry)
             return nil, nil, nil, false;
         end
     end
-
     return name, vendor, ah, true;
 end
 
@@ -825,12 +723,11 @@ local function load_price_ui_from_item(item)
     M.price_ui.mode = get_item_mode(item.key);
 end
 
+-- Rebuild M.pricing (unit gil) and M.price_book from item_index + modes.
 function M.update_pricing()
-
     M.pricing = T{};
     M.price_book = T{};
     local mode_map = load_mode_map();
-
     for _, entry in ipairs(M.settings.tracker.item_index or {}) do
         local name, vendor, ah, ok = parse_price_line(entry);
         if ok then
@@ -846,15 +743,14 @@ function M.update_pricing()
             M.pricing[key] = resolve_unit_price(vendor, ah, mode);
         end
     end
-
 end
 
+-- Combo + vendor/AH inputs; writes back into item_index line format.
 local function render_price_editor()
     local items = list_price_items();
     local selected_key = M.price_ui.selected[1] or '';
     local selected_item = nil;
     local selected_label = '(none)';
-
     for _, item in ipairs(items) do
         if item.key == selected_key then
             selected_item = item;
@@ -873,16 +769,13 @@ local function render_price_editor()
         load_price_ui_from_item(nil);
         selected_label = '(none)';
     end
-
     imgui.Text('Fish Price Editor');
     imgui.BeginChild('fush_price_editor', { 0, 202 }, true);
-
     if #items == 0 then
         imgui.TextWrapped('Add valid price lines below to edit fish pricing here.');
         imgui.EndChild();
         return;
     end
-
     if imgui.BeginCombo('Fish', selected_label) then
         for _, item in ipairs(items) do
             local is_selected = item.key == selected_key;
@@ -897,13 +790,11 @@ local function render_price_editor()
         end
         imgui.EndCombo();
     end
-
     local avail = imgui.GetContentRegionAvail();
     if type(avail) == 'table' then
         avail = avail[1] or avail.x or 200;
     end
     local half_w = math.max(80, math.floor((tonumber(avail) or 200) * 0.5));
-
     imgui.PushItemWidth(half_w);
     if imgui.InputInt('Vendor Price', M.price_ui.vendor) then
         if M.price_ui.vendor[1] < 0 then
@@ -915,7 +806,6 @@ local function render_price_editor()
         end
     end
     imgui.PopItemWidth();
-
     imgui.PushItemWidth(half_w);
     if imgui.InputInt('AH Price', M.price_ui.ah) then
         if M.price_ui.ah[1] < 0 then
@@ -927,7 +817,6 @@ local function render_price_editor()
         end
     end
     imgui.PopItemWidth();
-
     imgui.Text('Price Source');
     local mode = M.price_ui.mode or 'ah';
     if imgui.RadioButton('Use vendor price', mode == 'vendor') then
@@ -945,11 +834,8 @@ local function render_price_editor()
         set_item_mode(selected_key, 'highest');
         M.update_pricing();
     end
-
     imgui.EndChild();
 end
-
-
 
 -- Remaining content-region height for panels that should grow with the window.
 local function fill_height(min_h)
@@ -966,29 +852,16 @@ local function fill_height(min_h)
 end
 
 local function render_general()
-
     imgui.Text('Modules');
-
     imgui.BeginChild('fush_modules', { 0, 155 }, true);
-
     imgui.Checkbox('Bite Tracker', M.settings.bite.visible);
-
     imgui.Checkbox('Session Tracker', M.settings.tracker.visible);
-
     imgui.Checkbox('Pool Resupply Bar', M.settings.pool.visible);
-
     imgui.Checkbox('Ship Tracker', M.settings.ship.visible);
-
     imgui.Checkbox('Reset Session On Load', M.settings.reset_on_load);
-
     imgui.EndChild();
-
-
-
     imgui.Text('Fonts');
-
     imgui.BeginChild('fush_fonts', { 0, 100 }, true);
-
     if M.settings.font_size == nil then
         M.settings.font_size = T{ 13 };
     end
@@ -996,34 +869,24 @@ local function render_general()
         if M.settings.font_size[1] < 6 then M.settings.font_size[1] = 6; end
         if M.settings.font_size[1] > 30 then M.settings.font_size[1] = 30; end
     end
-
     if M.settings.ui.font_family == nil then
         M.settings.ui.font_family = T{ 'Tahoma Bold (Default)' };
     end
     fonts.render_combo(M.settings.ui.font_family);
-
     imgui.EndChild();
-
 end
 
-
-
 local function render_appearance()
-
     imgui.BeginChild('fush_appearance', { 0, fill_height(280) }, true);
-
     imgui.Text('Window Theme');
-
     local themes = theme.THEME_OPTIONS;
     local current_theme = M.settings.ui.background_theme[1];
-
     for _, entry in ipairs(themes) do
         if imgui.RadioButton(entry.label, current_theme == entry.id) then
             M.settings.ui.background_theme[1] = entry.id;
         end
         imgui.SameLine();
     end
-
     imgui.NewLine();
 
     local function render_module_style_section(label, module_style)
@@ -1033,10 +896,8 @@ local function render_appearance()
         imgui.SliderFloat(label .. ' Background Opacity', module_style.background_opacity, 0.0, 1.0, '%.2f');
         imgui.SliderInt(label .. ' Border Thickness', module_style.border_thickness, 0, 6);
     end
-
     render_module_style_section('Bite', M.settings.ui.bite);
     render_module_style_section('Session', M.settings.ui.tracker);
-
     if M.settings.ui.tracker.show_duration == nil then
         M.settings.ui.tracker.show_duration = T{ false };
     end
@@ -1045,9 +906,7 @@ local function render_appearance()
     end
     imgui.Checkbox('Show Duration', M.settings.ui.tracker.show_duration);
     imgui.Checkbox('Show Controls', M.settings.ui.tracker.show_controls);
-
     render_module_style_section('Pool', M.settings.ui.pool);
-
     if M.settings.ui.pool.show_next_restock == nil then
         M.settings.ui.pool.show_next_restock = T{ true };
     end
@@ -1060,58 +919,37 @@ local function render_appearance()
     imgui.Checkbox('Show Next Restock', M.settings.ui.pool.show_next_restock);
     imgui.Checkbox('Show Vana Time', M.settings.ui.pool.show_vana_time);
     imgui.Checkbox('Show Moon Phase', M.settings.ui.pool.show_moon_phase);
-
     render_module_style_section('Ship', M.settings.ui.ship);
-
     imgui.EndChild();
-
 end
 
-
-
 local function render_tracker()
-
     imgui.BeginChild('fush_tracker_cfg', { 0, 155 }, true);
-
     -- Half-width inputs so long labels stay visible in the config window.
     local avail = imgui.GetContentRegionAvail();
     if type(avail) == 'table' then
         avail = avail[1] or avail.x or 200;
     end
     local half_w = math.max(80, math.floor((tonumber(avail) or 200) * 0.5));
-
     imgui.PushItemWidth(half_w);
     imgui.InputInt('Display Timeout (sec)', M.settings.tracker.display_timeout);
     imgui.PopItemWidth();
-
     if M.settings.tracker.never_hide == nil then
         M.settings.tracker.never_hide = T{ false };
     end
     imgui.Checkbox('Never Hide', M.settings.tracker.never_hide);
-
     imgui.PushItemWidth(half_w);
     imgui.InputInt('Bait Cost (per cast)', M.settings.tracker.bait_cost);
     imgui.PopItemWidth();
-
     imgui.Checkbox('Subtract Bait Cost', M.settings.tracker.subtract_bait);
-
     imgui.Checkbox('Using Lure (skip bait cost)', M.settings.tracker.use_lure);
-
     imgui.EndChild();
-
-
-
     render_price_editor();
-
     imgui.Text('Item Prices (name:price or name:vendor:ah, one per line)');
-
     local temp = T{ table.concat(M.settings.tracker.item_index, '\n') };
-
     if imgui.InputTextMultiline('##fush_prices', temp, 8192, { 0, fill_height(100) }) then
-
         M.settings.tracker.item_index = split(temp[1], '\n');
         M.update_pricing();
-
         local key = M.price_ui.selected[1] or '';
         local book = M.price_book[key];
         if book ~= nil then
@@ -1127,12 +965,8 @@ local function render_tracker()
             local items = list_price_items();
             load_price_ui_from_item(items[1]);
         end
-
     end
-
 end
-
-
 
 local function do_reset_defaults()
     -- Ashita settings.reset() only rewrites the active character's file.
@@ -1144,44 +978,35 @@ local function do_reset_defaults()
 end
 
 local function render_positions()
-
     imgui.BeginChild('fush_positions', { 0, 320 }, true);
-
     local bite_pos = T{ M.settings.bite.x[1], M.settings.bite.y[1] };
     if imgui.InputInt2('Bite Seam Position', bite_pos) then
         M.settings.bite.x[1] = bite_pos[1];
         M.settings.bite.y[1] = bite_pos[2];
     end
-
     local tracker_pos = T{ M.settings.tracker.x[1], M.settings.tracker.y[1] };
     if imgui.InputInt2('Tracker Position', tracker_pos) then
         M.settings.tracker.x[1] = tracker_pos[1];
         M.settings.tracker.y[1] = tracker_pos[2];
     end
-
     local pool_pos = T{ M.settings.pool.x[1], M.settings.pool.y[1] };
     if imgui.InputInt2('Pool Bar Position', pool_pos) then
         M.settings.pool.x[1] = pool_pos[1];
         M.settings.pool.y[1] = pool_pos[2];
     end
-
     imgui.InputInt('Pool Bar Width', M.settings.pool.width);
     imgui.InputInt('Pool Bar Height', M.settings.pool.height);
-
     local ship_pos = T{ M.settings.ship.x[1], M.settings.ship.y[1] };
     if imgui.InputInt2('Ship Tracker Position', ship_pos) then
         M.settings.ship.x[1] = ship_pos[1];
         M.settings.ship.y[1] = ship_pos[2];
     end
-
     imgui.Separator();
     imgui.Spacing();
-
     if imgui.Button('Reset Defaults') then
         imgui.OpenPopup('FushResetDefaults##Confirm');
     end
     imgui.TextDisabled('Restores all Fush settings to factory defaults.');
-
     if imgui.BeginPopupModal('FushResetDefaults##Confirm', nil, ImGuiWindowFlags_AlwaysAutoResize) then
         imgui.Text('Reset all Fush settings to defaults?');
         imgui.TextWrapped('This cannot be undone. Saved positions, prices, fonts, and appearance will be lost.');
@@ -1196,180 +1021,95 @@ local function render_positions()
         end
         imgui.EndPopup();
     end
-
     imgui.EndChild();
-
 end
 
-
-
+-- ImGui config window; early-out when editor_open is false.
 function M.render_editor()
-
     if not M.editor_open[1] then
-
         return;
-
     end
-
     M.ensure_ui_settings();
-
-
-
     imgui.SetNextWindowSize({ 540, 600 }, ImGuiCond_FirstUseEver);
-
     local style_counts = theme.apply_style();
-
-
-
     if imgui.Begin('Fush##Config', M.editor_open) then
-
         if imgui.Button('Save') then
-
             M.update_pricing();
-
             settings.save();
-
             print(chat.header('fush'):append(chat.message('Settings saved.')));
-
         end
-
         imgui.SameLine();
-
         if imgui.Button('Reload') then
-
             settings.reload();
-
             M.ensure_ui_settings();
-
             ui.bind(M.settings, M.editor_open);
-
             M.update_pricing();
-
             print(chat.header('fush'):append(chat.message('Settings reloaded.')));
-
         end
-
         imgui.SameLine();
-
         if imgui.Button('Reset Session') then
-
             tracker.reset_session();
-
             bite.reset();
-
             print(chat.header('fush'):append(chat.message('Session cleared for this character.')));
-
         end
-
-
-
         imgui.Separator();
-
-
-
         if imgui.BeginTabBar('##fush_tabs') then
-
             if imgui.BeginTabItem('General') then
-
                 render_general();
-
                 imgui.EndTabItem();
-
             end
-
             if imgui.BeginTabItem('Appearance') then
-
                 render_appearance();
-
                 imgui.EndTabItem();
-
             end
-
             if imgui.BeginTabItem('Tracker') then
-
                 render_tracker();
-
                 imgui.EndTabItem();
-
             end
-
             if imgui.BeginTabItem('Layout') then
-
                 render_positions();
-
                 imgui.EndTabItem();
-
             end
-
             if imgui.BeginTabItem('About') then
-
                 imgui.BeginChild('fush_about', { 0, fill_height(200) }, true);
-
                 ui.render_about();
-
                 imgui.Spacing();
-
                 imgui.TextDisabled(attribution.XIUI_LICENSE);
-
                 imgui.EndChild();
-
                 imgui.EndTabItem();
-
             end
-
             imgui.EndTabBar();
-
         end
-
     end
-
     imgui.End();
-
     theme.pop_style(style_counts);
-
 end
-
-
 
 settings.register('settings', 'settings_update', function (s)
-
     if s ~= nil then
-
         M.settings = s;
-
     end
-
     M.ensure_ui_settings();
     ensure_module_settings('bite');
     ensure_module_settings('tracker');
     ensure_module_settings('pool');
     ensure_module_settings('ship');
-
     if M.settings.panels_hidden == nil then
         M.settings.panels_hidden = T{ false };
     end
-
     if M.settings.fishing_skill == nil then
         M.settings.fishing_skill = T{
             exact = T{ false },
             level = T{ 0 },
         };
     end
-
     ui.bind(M.settings, M.editor_open);
-
     local tracker = require('modules.tracker');
     -- Ashita swaps the settings table per character; rebind live session/skill
     -- from this character only (clears any previous character's in-memory state).
     tracker.bind_skill_settings(M.settings);
     bite.reset();
-
     M.update_pricing();
-
 end);
 
-
-
 return M;
-
-

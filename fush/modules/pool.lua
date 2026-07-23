@@ -46,6 +46,7 @@ local function build_notches(timestamp)
     return notches;
 end
 
+-- Flash when day_progress crosses a restock hour (or wraps past midnight).
 local function update_restock_pulse(progress)
     local now = ashita.time.clock()['ms'];
     local last = M.pulse.last_progress;
@@ -83,6 +84,7 @@ local function update_restock_pulse(progress)
     return elapsed / PULSE_DURATION_MS;
 end
 
+--- Day-progress bar with restock notches; optional countdown / Vana time / moon.
 function M.render(settings)
     if not settings.pool.visible[1] then
         return;

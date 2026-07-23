@@ -2,7 +2,7 @@
 * Fush - Ship / ferry departure tracker (HorizonXI schedules)
 *
 * Times sourced from Horizogenes / HorizonXI wiki boat schedules (Vana'diel).
-* Countdown shown in real-world mm:ss (1 Vana unit ≈ 1 Earth second).
+* Countdown shown in real-world mm:ss (1 Vana unit ~= 1 Earth second).
 ]]--
 
 require('common');
@@ -27,7 +27,7 @@ local WHITEGATE_UNLOCK_OS = os.time({
     sec = 0,
 });
 
-local COLOR_TIMER_OK = nil;      -- filled from theme each frame
+local COLOR_TIMER_OK = nil; -- filled from theme each frame
 local COLOR_TIMER_WARN = nil;
 local COLOR_TIMER_URGENT = { 0.95, 0.28, 0.24, 1.0 };
 local COLOR_LOCKED = { 0.52, 0.54, 0.58, 1.0 };
@@ -68,8 +68,8 @@ local ROUTES = {
         from = 'Bibiki Bay',
         to = 'Tours',
         departures = {
-            { hour = 0, minute = 50 },   -- Dhalmel Rock
-            { hour = 12, minute = 50 },  -- Maliyakaleya Reef
+            { hour = 0, minute = 50 }, -- Dhalmel Rock
+            { hour = 12, minute = 50 }, -- Maliyakaleya Reef
         },
     },
     {
@@ -105,7 +105,7 @@ local function route_locked(route, now_os)
     return now_os < until_os;
 end
 
--- >5m white, 1m..5m yellow, <1m red (Earth seconds; 1 Vana unit ≈ 1s).
+-- >5m white, 1m..5m yellow, <1m red (Earth seconds; 1 Vana unit ~= 1s).
 local function timer_color(units)
     if units == nil then
         return COLOR_TIMER_OK;
@@ -136,7 +136,7 @@ local function cursor_screen_pos()
     return sx, sy;
 end
 
--- Arrow size tracks line height (font size × module scale via SetWindowFontScale).
+-- Arrow size tracks line height (font size x module scale via SetWindowFontScale).
 local function arrow_size_for_line(line_h)
     local h = math.max(8, math.floor(line_h * ARROW_LINE_RATIO + 0.5));
     return h, h;
@@ -152,6 +152,7 @@ local function draw_route_arrow(draw_list, x_pos, y_pos, arrow_w, arrow_h, line_
     ui.text_outlined_colored(ARROW, color);
 end
 
+--- Route list with soonest departure countdown (Earth mm:ss).
 function M.render(settings)
     if not settings.ship or not settings.ship.visible[1] then
         return;
@@ -200,13 +201,19 @@ function M.render(settings)
                 units = vana.next_departure_units(timestamp, route.departures);
                 timer = vana.format_units_countdown(units);
                 timer_w = text_w(timer);
-                if timer_w > max_timer_w then max_timer_w = timer_w; end
+                if timer_w > max_timer_w then
+                    max_timer_w = timer_w;
+                end
             end
 
             local from_w = text_w(route.from);
             local to_w = text_w(route.to);
-            if from_w > max_from_w then max_from_w = from_w; end
-            if to_w > max_to_w then max_to_w = to_w; end
+            if from_w > max_from_w then
+                max_from_w = from_w;
+            end
+            if to_w > max_to_w then
+                max_to_w = to_w;
+            end
 
             rows:append({
                 from = route.from,
